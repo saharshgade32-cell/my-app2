@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kid & Adult App</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  </head>
+  <body style="margin:0;padding:0;">
+    <div id="root"></div>
+    <script type="text/babel">
+
+const { useState, useEffect, useRef } = React;
+
+const callClaude = async (messages, systemPrompt) => {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": "YOUR_API_KEY_HERE",
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 1000,
+      system: systemPrompt,
+      messages,
+    }),
+  });
+  const data = await res.json();
+  return data.content?.map((b) => b.text || "").join("") || "Oops! Try again.";
+};
+
+const KID_SYSTEM = `You are Buddy, a friendly, encouraging AI assistant for kids aged 5-12. 
+Use simple, fun language. Add the occasional emoji. Keep answers short and easy to understand. 
+Never discuss anything inappropriate, violent, or adult. Be warm, playful, and educational.`;
+
+function KidMode({ onSwitch }) {
+  const [tab, setTab] = useState("chat");
+  const [messages, setMessages] = useState([
+    { role: "assistant", content: "Hi! I'm Buddy! 🌟 Ask me anything or tell me what's on your mind!" },
+  ]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [reminders, setReminders] = useState([
+    { id: 1, text: "Math homework", done: false, time: "4:00 PM" },
+    { id: 2, text: "Read for 20 minutes", done: false, time: "5:00 PM" },
+    { id: 3, text: "Pack backpack", done: true, time: "8:00 PM" },
+  ]);
+  const [newReminder, setNewReminder] = useState("");
+  const [newTime, setNewTime] = useState("");
+  const bottomRef = useRef(null);
+
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+
+  const sendMessage = async () => {
+    if (!input.trim() || loading) return;
+    const userMsg = { role: "user", content: input };
+    const next = [...messages, userMsg];
+    setMessages(next);
+    setInput("");
+    setLoading(true);
+    try {
+      const reply = await callClaude(next, KID_SYSTEM);
+      setMessages([...next, { role: "assistant", content: reply }]);
+    } catch { setMessages([...next, { role: "assistant", content: "Oops! Something went wrong 😅" }]); }
+    setLoading(false);
+  };
+
+  const addReminder = () => {
+    if (!newReminder.trim()) return;
+    setReminders([...reminders, { id: Date.now(), text: newReminder, done: false, time: newTime || "Anytime" }]);
+    setNewReminder(""); setNewTime("");
+  };
+
+  const toggleReminder = (id) => setReminders(reminders.map(r => r.id === id ? { ...r, done: !r.done } : r));
+  const deleteReminder = (id) => setReminders(reminders.filter(r => r.id !== id));
+
+  const emojis = ["🌈","⭐","🎨","🦄","🎮","🍭","🐶","🚀","🌸","🎯"];
+
+  return (
+    <div style={{
+      minHeight: "100vh",
+      background: "linear-gradient(135deg, #ff9a9e 0%, #fad0c4 25%, #ffecd2 50%, #a1c4fd 75%, #c2e9fb 100%)",
+      fontFamily: "'Fredoka One', cursive",
+    }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700&display=swap');
+        @keyframes float0 { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-20px)} }
+        @keyframes float1 { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-15px)} }
+        @keyframes float2 { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-25px)} }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+        .kid-btn { border:none; cursor:pointer; transition:all 0.2s; }
+        .kid-btn:hover { transform:scale(1.05); }
+        .kid-btn:active { transform:scale(0.97); }
+        * { box-sizing: border-box; }
+      `}</style>
+
+      {emojis.map((e, i) => (
+        <div key={i} style={{
+          position: "fixed", fontSize: `${1.5 + (i % 3) * 0.5}rem`,
+          left: `${(i * 11) % 95}%`, top: `${(i * 17 + 5) % 90}%`,
+          opacity: 0.12, userSelect: "none", pointerEvents: "none",
+          animation: `float${i % 3} ${4 + i}s ease-in-out infinite`,
+        }}>{e}</div>
+      ))}
+
+      <div style={{ maxWidth: 480, margin: "0 auto", padding: "16px 12px", position: "relative", zIndex: 1 }}>
+        <div style={{ textAlign: "center", marginBottom: 16 }}>
+          <div style={{ fontSize: "3rem" }}>🌟</div>
+          <h1 style={{ color: "#ff6b9d", fontSize: "2rem", margin: "4px 0", textShadow: "2px 2px 0 #fff" }}>KidZone</h1>
+          <p style={{ color: "#7c5cbf", fontFamily: "'Nunito',sans-serif", margin: 0, fontWeight: 600 }}>Your magical helper!</p>
+          <button onClick={onSwitch} className="kid-btn" style={{
+            marginTop: 8, padding: "6px 16px", borderRadius: 20,
+            background: "rgba(255,255,255,0.6)", color: "#555",
+            fontFamily: "'Nunito',sans-serif", fontSize: "0.8rem", fontWeight: 600,
+          }}>Switch to Adult Mode 🔒</button>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+          {[["chat","💬 Chat"],["reminders","📚 Reminders"],["tips","✨ Tips"]].map(([t, label]) => (
+            <button key={t} onClick={() => setTab(t)} className="kid-btn" style={{
+              flex: 1, padding: "10px 4px", borderRadius: 16, fontSize: "0.8rem", fontWeight: 700,
+              background: tab === t ? "linear-gradient(135deg,#ff6b9d,#ff9a9e)" : "rgba(255,255,255,0.6)",
+              color: tab === t ? "#fff" : "#666",
+              boxShadow: tab === t ? "0 4px 12px rgba(255,107,157,0.4)" : "none",
+            }}>{label}</button>
+          ))}
+        </div>
+
+        {tab === "chat" && (
+          <div style={{ background: "rgba(255,255,255,0.7)", borderRadius: 24, overflow: "hidden", backdropFilter: "blur(10px)" }}>
+            <div style={{ height: 380, overflowY: "auto", padding: "16px 12px" }}>
+              {messages.map((m, i) => (
+                <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start", marginBottom: 4 }}>
+                  {m.role === "assistant" && <span style={{ fontSize: "1.4rem", marginRight: 6, alignSelf: "flex-end" }}>🤖</span>}
+                  <div style={{
+                    maxWidth: "75%", padding: "12px 18px", borderRadius: 20,
+                    fontFamily: "'Nunito',sans-serif", fontSize: "0.95rem", lineHeight: 1.5,
+                    background: m.role === "user" ? "linear-gradient(135deg,#a18cd1,#fbc2eb)" : "linear-gradient(135deg,#84fab0,#8fd3f4)",
+                    color: "#333", boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+                  }}>{m.content}</div>
+                  {m.role === "user" && <span style={{ fontSize: "1.4rem", marginLeft: 6, alignSelf: "flex-end" }}>😊</span>}
+                </div>
+              ))}
+              {loading && (
+                <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: 4 }}>
+                  <span style={{ fontSize: "1.4rem", marginRight: 6 }}>🤖</span>
+                  <div style={{
+                    maxWidth: "75%", padding: "12px 18px", borderRadius: 20,
+                    background: "linear-gradient(135deg,#84fab0,#8fd3f4)", color: "#555",
+                    fontFamily: "'Nunito',sans-serif", animation: "pulse 1.5s infinite",
+                  }}>Thinking... 🤔✨</div>
+                </div>
+              )}
+              <div ref={bottomRef} />
+            </div>
+            <div style={{ padding: "12px", borderTop: "2px dashed rgba(255,107,157,0.3)", display: "flex", gap: 8 }}>
+              <input value={input} onChange={e => setInput(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && sendMessage()}
+                placeholder="Ask me anything! 🌈"
+                style={{
+                  flex: 1, padding: "10px 16px", borderRadius: 20,
+                  border: "2px solid #fbc2eb", outline: "none",
+                  fontFamily: "'Nunito',sans-serif", fontSize: "0.95rem",
+                  background: "rgba(255,255,255,0.8)",
+                }} />
+              <button onClick={sendMessage} className="kid-btn" style={{
+                padding: "10px 18px", borderRadius: 20,
+                background: "linear-gradient(135deg,#ff6b9d,#ff9a9e)",
+                color: "#fff", fontSize: "1.1rem",
+                boxShadow: "0 4px 12px rgba(255,107,157,0.4)",
+              }}>🚀</button>
+            </div>
+          </div>
+        )}
+
+        {tab === "reminders" && (
+          <div style={{ background: "rgba(255,255,255,0.7)", borderRadius: 24, padding: 16, backdropFilter: "blur(10px)" }}>
+            <h3 style={{ color: "#7c5cbf", margin: "0 0 12px", fontSize: "1.2rem" }}>📚 My Homework & Tasks</h3>
+            {reminders.map(r => (
+              <div key={r.id} style={{
+                display: "flex", alignItems: "center", gap: 10,
+                background: r.done ? "rgba(132,250,176,0.3)" : "rgba(255,255,255,0.8)",
+                borderRadius: 16, padding: "10px 14px", marginBottom: 8,
+                border: `2px solid ${r.done ? "#84fab0" : "#fbc2eb"}`,
+              }}>
+                <button onClick={() => toggleReminder(r.id)} className="kid-btn" style={{
+                  width: 28, height: 28, borderRadius: 8,
+                  background: r.done ? "#84fab0" : "rgba(255,255,255,0.9)",
+                  border: `2px solid ${r.done ? "#52c78a" : "#ccc"}`,
+                  color: "#fff", fontSize: "0.9rem", display: "flex", alignItems: "center", justifyContent: "center",
+                }}>{r.done ? "✓" : ""}</button>
+                <div style={{ flex: 1 }}>
+                  <div style={{
+                    fontFamily: "'Nunito',sans-serif", fontWeight: 700,
+                    color: r.done ? "#999" : "#333",
+                    textDecoration: r.done ? "line-through" : "none", fontSize: "0.95rem",
+                  }}>{r.text}</div>
+                  <div style={{ color: "#999", fontSize: "0.75rem" }}>⏰ {r.time}</div>
+                </div>
+                <button onClick={() => deleteReminder(r.id)} className="kid-btn" style={{
+                  background: "rgba(255,107,107,0.15)", color: "#ff6b6b",
+                  border: "none", borderRadius: 8, padding: "4px 8px", fontSize: "0.8rem",
+                }}>✕</button>
+              </div>
+            ))}
+            <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <input value={newReminder} onChange={e => setNewReminder(e.target.value)} placeholder="Add a new reminder..."
+                style={{ flex: 2, padding: "8px 14px", borderRadius: 16, border: "2px solid #fbc2eb", outline: "none", fontFamily: "'Nunito',sans-serif", minWidth: 120 }} />
+              <input value={newTime} onChange={e => setNewTime(e.target.value)} placeholder="Time"
+                style={{ flex: 1, padding: "8px 12px", borderRadius: 16, border: "2px solid #fbc2eb", outline: "none", fontFamily: "'Nunito',sans-serif", minWidth: 80 }} />
+              <button onClick={addReminder} className="kid-btn" style={{
+                padding: "8px 16px", borderRadius: 16,
+                background: "linear-gradient(135deg,#a18cd1,#fbc2eb)", color: "#fff",
+                fontWeight: 700, fontFamily: "'Nunito',sans-serif",
+              }}>+ Add</button>
+            </div>
+          </div>
+        )}
+
+        {tab === "tips" && (
+          <div style={{ background: "rgba(255,255,255,0.7)", borderRadius: 24, padding: 16, backdropFilter: "blur(10px)" }}>
+            <h3 style={{ color: "#7c5cbf", margin: "0 0 12px" }}>✨ Daily Tips for Kids</h3>
+            {[
+              ["🌅","Morning Routine","Wake up 30 mins early to have a calm, happy morning. Eat breakfast — it powers your brain!"],
+              ["📖","Study Tips","Study in a quiet place, take short breaks every 25 minutes, and drink water!"],
+              ["😴","Sleep Well","Kids need 9-11 hours of sleep. Put away screens 1 hour before bed."],
+              ["🏃","Stay Active","Play outside or exercise for at least 60 minutes every day — it's FUN and healthy!"],
+              ["🤝","Be Kind","Say something nice to a friend today. Kindness makes the world brighter!"],
+              ["🧹","Help at Home","Help with small chores. It teaches you great skills for life!"],
+            ].map(([emoji, title, tip]) => (
+              <div key={title} style={{
+                background: "rgba(255,255,255,0.8)", borderRadius: 16, padding: "12px 14px",
+                marginBottom: 10, border: "2px solid #e8d5f5",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+                  <span style={{ fontSize: "1.4rem" }}>{emoji}</span>
+                  <strong style={{ color: "#7c5cbf", fontFamily: "'Nunito',sans-serif" }}>{title}</strong>
+                </div>
+                <p style={{ margin: 0, color: "#555", fontFamily: "'Nunito',sans-serif", fontSize: "0.88rem", lineHeight: 1.5 }}>{tip}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const ADULT_SYSTEM = `You are an intelligent, professional AI assistant. 
+Provide thoughtful, accurate, and comprehensive help with any adult topics: finance, health, career, productivity, relationships, legal questions (with appropriate disclaimers), technology, and more. 
+Be direct, informative, and respectful. Keep responses concise but complete.`;
+
+function AdultMode({ onSwitch }) {
+  const [tab, setTab] = useState("chat");
+  const [messages, setMessages] = useState([
+    { role: "assistant", content: "Hello! I'm your personal AI assistant. How can I help you today?" },
+  ]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [tasks, setTasks] = useState([
+    { id: 1, text: "Review monthly budget", done: false, priority: "high" },
+    { id: 2, text: "Schedule doctor's appointment", done: false, priority: "medium" },
+    { id: 3, text: "File quarterly taxes", done: true, priority: "high" },
+    { id: 4, text: "Update resume", done: false, priority: "low" },
+  ]);
+  const [newTask, setNewTask] = useState("");
+  const [priority, setPriority] = useState("medium");
+  const bottomRef = useRef(null);
+
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+
+  const sendMessage = async () => {
+    if (!input.trim() || loading) return;
+    const userMsg = { role: "user", content: input };
+    const next = [...messages, userMsg];
+    setMessages(next);
+    setInput("");
+    setLoading(true);
+    try {
+      const reply = await callClaude(next, ADULT_SYSTEM);
+      setMessages([...next, { role: "assistant", content: reply }]);
+    } catch { setMessages([...next, { role: "assistant", content: "An error occurred. Please try again." }]); }
+    setLoading(false);
+  };
+
+  const addTask = () => {
+    if (!newTask.trim()) return;
+    setTasks([...tasks, { id: Date.now(), text: newTask, done: false, priority }]);
+    setNewTask("");
+  };
+
+  const toggleTask = (id) => setTasks(tasks.map(t => t.id === id ? { ...t, done: !t.done } : t));
+  const deleteTask = (id) => setTasks(tasks.filter(t => t.id !== id));
+  const priorityColors = { high: "#ef4444", medium: "#f59e0b", low: "#10b981" };
+
+  return (
+    <div style={{
+      minHeight: "100vh",
+      background: "linear-gradient(160deg, #0f172a 0%, #1e3a5f 40%, #0f2847 100%)",
+      fontFamily: "'Inter', 'Segoe UI', sans-serif",
+      color: "#e2e8f0",
+    }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+        .adult-btn { border:none; cursor:pointer; transition:all 0.2s; font-family:'Inter',sans-serif; }
+        .adult-btn:hover { filter:brightness(1.1); transform:translateY(-1px); }
+        .adult-btn:active { transform:translateY(0); }
+        ::-webkit-scrollbar { width:4px; }
+        ::-webkit-scrollbar-thumb { background:rgba(59,130,246,0.5); border-radius:2px; }
+      `}</style>
+
+      <div style={{ maxWidth: 560, margin: "0 auto", padding: "16px 12px" }}>
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          marginBottom: 20, padding: "16px 20px",
+          background: "rgba(255,255,255,0.05)", borderRadius: 16,
+          border: "1px solid rgba(59,130,246,0.3)", backdropFilter: "blur(12px)",
+        }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#3b82f6", animation: "pulse 2s infinite" }} />
+              <h1 style={{ margin: 0, fontSize: "1.4rem", fontWeight: 700, color: "#fff", letterSpacing: "-0.5px" }}>ASSISTANT</h1>
+            </div>
+            <p style={{ margin: "2px 0 0", color: "#64748b", fontSize: "0.78rem" }}>ADULT MODE · ACTIVE</p>
+          </div>
+          <button onClick={onSwitch} className="adult-btn" style={{
+            padding: "8px 16px", borderRadius: 10,
+            background: "rgba(255,255,255,0.08)", color: "#94a3b8",
+            fontSize: "0.8rem", border: "1px solid rgba(255,255,255,0.1)",
+          }}>Switch to Kid Mode 🌈</button>
+        </div>
+
+        <div style={{ display: "flex", gap: 6, marginBottom: 16, background: "rgba(255,255,255,0.04)", borderRadius: 12, padding: 4 }}>
+          {[["chat","💬 AI Chat"],["tasks","✅ Tasks"],["tools","🛠 Tools"]].map(([t, label]) => (
+            <button key={t} onClick={() => setTab(t)} className="adult-btn" style={{
+              flex: 1, padding: "10px 8px", borderRadius: 10, fontSize: "0.82rem", fontWeight: 600,
+              background: tab === t ? "linear-gradient(135deg,#1d4ed8,#3b82f6)" : "transparent",
+              color: tab === t ? "#fff" : "#64748b",
+              boxShadow: tab === t ? "0 4px 14px rgba(59,130,246,0.3)" : "none",
+            }}>{label}</button>
+          ))}
+        </div>
+
+        {tab === "chat" && (
+          <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 16, border: "1px solid rgba(59,130,246,0.2)", overflow: "hidden" }}>
+            <div style={{ height: 400, overflowY: "auto", padding: "16px 12px" }}>
+              {messages.map((m, i) => (
+                <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start", marginBottom: 4 }}>
+                  <div style={{
+                    maxWidth: "75%", padding: "12px 16px", borderRadius: 12, margin: "5px 4px",
+                    fontSize: "0.92rem", lineHeight: 1.6,
+                    background: m.role === "user" ? "linear-gradient(135deg,#1d4ed8,#2563eb)" : "rgba(255,255,255,0.07)",
+                    color: "#e2e8f0",
+                    border: m.role === "assistant" ? "1px solid rgba(255,255,255,0.08)" : "none",
+                  }}>{m.content}</div>
+                </div>
+              ))}
+              {loading && (
+                <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: 4 }}>
+                  <div style={{
+                    maxWidth: "75%", padding: "12px 16px", borderRadius: 12,
+                    background: "rgba(255,255,255,0.07)", color: "#64748b",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    animation: "pulse 1.5s infinite", fontSize: "0.92rem",
+                  }}>Thinking...</div>
+                </div>
+              )}
+              <div ref={bottomRef} />
+            </div>
+            <div style={{ padding: "12px", borderTop: "1px solid rgba(255,255,255,0.06)", display: "flex", gap: 8 }}>
+              <input value={input} onChange={e => setInput(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && sendMessage()}
+                placeholder="Ask anything..."
+                style={{
+                  flex: 1, padding: "10px 16px", borderRadius: 10,
+                  border: "1px solid rgba(59,130,246,0.3)",
+                  background: "rgba(255,255,255,0.06)", color: "#e2e8f0", fontSize: "0.92rem", outline: "none",
+                }} />
+              <button onClick={sendMessage} className="adult-btn" style={{
+                padding: "10px 20px", borderRadius: 10,
+                background: "linear-gradient(135deg,#1d4ed8,#3b82f6)",
+                color: "#fff", fontSize: "0.85rem", fontWeight: 600,
+              }}>Send</button>
+            </div>
+          </div>
+        )}
+
+        {tab === "tasks" && (
+          <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 16, padding: 16, border: "1px solid rgba(59,130,246,0.2)" }}>
+            <h3 style={{ margin: "0 0 14px", color: "#93c5fd", fontWeight: 600 }}>My Tasks</h3>
+            {tasks.map(t => (
+              <div key={t.id} style={{
+                display: "flex", alignItems: "center", gap: 10,
+                background: t.done ? "rgba(16,185,129,0.08)" : "rgba(255,255,255,0.04)",
+                borderRadius: 10, padding: "10px 12px", marginBottom: 8,
+                border: `1px solid ${t.done ? "rgba(16,185,129,0.3)" : "rgba(255,255,255,0.07)"}`,
+              }}>
+                <button onClick={() => toggleTask(t.id)} className="adult-btn" style={{
+                  width: 22, height: 22, borderRadius: 6, flexShrink: 0,
+                  background: t.done ? "#10b981" : "transparent",
+                  border: `2px solid ${t.done ? "#10b981" : "#475569"}`,
+                  color: "#fff", fontSize: "0.7rem", display: "flex", alignItems: "center", justifyContent: "center",
+                }}>{t.done ? "✓" : ""}</button>
+                <div style={{ flex: 1 }}>
+                  <div style={{ color: t.done ? "#475569" : "#e2e8f0", textDecoration: t.done ? "line-through" : "none", fontSize: "0.9rem" }}>{t.text}</div>
+                  <span style={{ fontSize: "0.7rem", color: priorityColors[t.priority], textTransform: "uppercase", letterSpacing: "0.5px", fontWeight: 600 }}>{t.priority} priority</span>
+                </div>
+                <button onClick={() => deleteTask(t.id)} className="adult-btn" style={{
+                  background: "rgba(239,68,68,0.1)", color: "#ef4444",
+                  borderRadius: 6, padding: "4px 8px", fontSize: "0.75rem", border: "none",
+                }}>✕</button>
+              </div>
+            ))}
+            <div style={{ marginTop: 14, display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <input value={newTask} onChange={e => setNewTask(e.target.value)} placeholder="New task..."
+                style={{ flex: 2, padding: "8px 14px", borderRadius: 10, border: "1px solid rgba(59,130,246,0.3)", background: "rgba(255,255,255,0.06)", color: "#e2e8f0", fontSize: "0.88rem", outline: "none", minWidth: 120 }} />
+              <select value={priority} onChange={e => setPriority(e.target.value)} style={{
+                flex: 1, padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(59,130,246,0.3)",
+                background: "#1e3a5f", color: "#e2e8f0", minWidth: 90, outline: "none",
+              }}>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+              <button onClick={addTask} className="adult-btn" style={{
+                padding: "8px 16px", borderRadius: 10,
+                background: "linear-gradient(135deg,#1d4ed8,#3b82f6)", color: "#fff", fontWeight: 600, fontSize: "0.85rem",
+              }}>+ Add</button>
+            </div>
+          </div>
+        )}
+
+        {tab === "tools" && (
+          <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 16, padding: 16, border: "1px solid rgba(59,130,246,0.2)" }}>
+            <h3 style={{ margin: "0 0 6px", color: "#93c5fd", fontWeight: 600 }}>Quick AI Tools</h3>
+            <p style={{ color: "#64748b", fontSize: "0.85rem", margin: "0 0 16px" }}>Click a topic to open it in chat:</p>
+            {[
+              ["💰","Finance","Help me create a personal budget plan"],
+              ["🏥","Health","What preventive health screenings should I schedule this year?"],
+              ["💼","Career","How can I negotiate a salary raise?"],
+              ["🏠","Home","What home maintenance tasks should I do quarterly?"],
+              ["📊","Productivity","Give me a productivity system for managing work and life"],
+              ["⚖️","Legal","What should I know before signing a lease?"],
+              ["🧘","Wellness","How do I build a sustainable wellness routine?"],
+              ["🔒","Security","How do I improve my digital privacy and security?"],
+            ].map(([icon, title, prompt]) => (
+              <button key={title} onClick={() => { setInput(prompt); setTab("chat"); }} className="adult-btn" style={{
+                display: "flex", alignItems: "center", gap: 12, width: "100%",
+                background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: "11px 14px",
+                marginBottom: 8, border: "1px solid rgba(255,255,255,0.07)",
+                color: "#e2e8f0", textAlign: "left",
+              }}>
+                <span style={{ fontSize: "1.2rem" }}>{icon}</span>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>{title}</div>
+                  <div style={{ color: "#64748b", fontSize: "0.75rem" }}>{prompt}</div>
+                </div>
+                <span style={{ marginLeft: "auto", color: "#3b82f6" }}>→</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ModeSelector({ onSelect }) {
+  return (
+    <div style={{
+      minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
+      background: "linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #1e1b4b 100%)",
+      fontFamily: "'Inter', sans-serif",
+    }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Fredoka+One&display=swap');
+        @keyframes fadeUp { from{opacity:0;transform:translateY(30px)} to{opacity:1;transform:translateY(0)} }
+        .mode-card { cursor:pointer; transition:all 0.3s; border:none; text-align:left; }
+        .mode-card:hover { transform:translateY(-6px) scale(1.02); }
+      `}</style>
+      <div style={{ textAlign: "center", padding: 24, animation: "fadeUp 0.6s ease" }}>
+        <div style={{ fontSize: "3rem", marginBottom: 8 }}>✦</div>
+        <h1 style={{ color: "#fff", fontSize: "2rem", fontWeight: 800, margin: "0 0 6px", letterSpacing: "-1px" }}>Choose Your Mode</h1>
+        <p style={{ color: "#818cf8", margin: "0 0 40px", fontSize: "0.95rem" }}>Personalized experience for everyone</p>
+        <div style={{ display: "flex", gap: 20, flexWrap: "wrap", justifyContent: "center" }}>
+          <button className="mode-card" onClick={() => onSelect("kid")} style={{
+            width: 220, padding: "28px 24px", borderRadius: 24,
+            background: "linear-gradient(145deg, #ff9a9e, #fad0c4, #ffecd2)",
+            boxShadow: "0 12px 40px rgba(255,154,158,0.4)",
+          }}>
+            <div style={{ fontSize: "3.5rem", marginBottom: 12 }}>🌈</div>
+            <div style={{ fontFamily: "'Fredoka One',cursive", fontSize: "1.6rem", color: "#c0392b", marginBottom: 8 }}>Kid Mode</div>
+            <p style={{ color: "#c0392b", opacity: 0.8, fontSize: "0.85rem", margin: 0, lineHeight: 1.5 }}>Fun, colorful & kid-friendly! AI buddy, homework reminders & daily tips</p>
+            <div style={{ marginTop: 16, padding: "8px 0", borderTop: "2px dashed rgba(192,57,43,0.3)" }}>
+              <span style={{ color: "#c0392b", fontWeight: 700, fontSize: "0.85rem" }}>Ages 5–12 →</span>
+            </div>
+          </button>
+
+          <button className="mode-card" onClick={() => onSelect("adult")} style={{
+            width: 220, padding: "28px 24px", borderRadius: 24,
+            background: "linear-gradient(145deg, #0f2847, #1d4ed8, #1e3a5f)",
+            boxShadow: "0 12px 40px rgba(29,78,216,0.5)",
+          }}>
+            <div style={{ fontSize: "3.5rem", marginBottom: 12 }}>💼</div>
+            <div style={{ fontSize: "1.4rem", fontWeight: 800, color: "#93c5fd", marginBottom: 8, letterSpacing: "-0.5px" }}>Adult Mode</div>
+            <p style={{ color: "#93c5fd", opacity: 0.8, fontSize: "0.85rem", margin: 0, lineHeight: 1.5 }}>Professional & powerful. AI assistant, task manager & life tools</p>
+            <div style={{ marginTop: 16, padding: "8px 0", borderTop: "1px solid rgba(147,197,253,0.3)" }}>
+              <span style={{ color: "#3b82f6", fontWeight: 700, fontSize: "0.85rem" }}>18+ →</span>
+            </div>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [mode, setMode] = useState(null);
+  if (!mode) return <ModeSelector onSelect={setMode} />;
+  if (mode === "kid") return <KidMode onSwitch={() => setMode("adult")} />;
+  return <AdultMode onSwitch={() => setMode("kid")} />;
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+
+    </script>
+  </body>
+</html>
