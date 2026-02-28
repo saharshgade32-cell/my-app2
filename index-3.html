@@ -1,0 +1,1100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>FamilyHub</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDXG-ZsLjcwIsniazjEZRf2vJzYuFvc_OM",
+      authDomain: "familyhub-296ee.firebaseapp.com",
+      projectId: "familyhub-296ee",
+      storageBucket: "familyhub-296ee.firebasestorage.app",
+      messagingSenderId: "273649191928",
+      appId: "1:273649191928:web:d16f133f230464566b240d"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    window.FB = {
+      db,
+      collection, addDoc, onSnapshot, query, orderBy, doc, setDoc, getDoc
+    };
+    window.firebaseReady = true;
+    window.dispatchEvent(new Event('firebaseReady'));
+  </script>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Sora:wght@300;400;600;700;800&display=swap" rel="stylesheet"/>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:'Sora',sans-serif;overflow-x:hidden;}
+    ::-webkit-scrollbar{width:4px;}
+    ::-webkit-scrollbar-thumb{background:rgba(0,0,0,0.2);border-radius:2px;}
+    input,select,textarea,button{font-family:'Sora',sans-serif;}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+    @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+    @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+    @keyframes slideIn{from{transform:translateX(30px);opacity:0}to{transform:translateX(0);opacity:1}}
+    @keyframes pop{0%{transform:scale(0.8);opacity:0}100%{transform:scale(1);opacity:1}}
+    .fade-up{animation:fadeUp 0.5s ease forwards;}
+    .btn{border:none;cursor:pointer;transition:all 0.2s;outline:none;}
+    .btn:hover{filter:brightness(1.08);transform:translateY(-1px);}
+    .btn:active{transform:scale(0.97);}
+    .card{background:#fff;border-radius:16px;box-shadow:0 2px 16px rgba(0,0,0,0.07);}
+    .input-field{width:100%;padding:11px 14px;border-radius:10px;border:1.5px solid #e2e8f0;outline:none;font-size:0.93rem;transition:border 0.2s;background:#fff;}
+    .input-field:focus{border-color:#6366f1;}
+    .tag{display:inline-flex;align-items:center;padding:3px 10px;border-radius:20px;font-size:0.75rem;font-weight:700;}
+    .spinner{width:20px;height:20px;border:3px solid rgba(255,255,255,0.3);border-top:3px solid #fff;border-radius:50%;animation:spin 0.8s linear infinite;display:inline-block;}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ── Local Storage (for non-firebase data) ────────────────────────────────────
+const LS = {
+  get: (k, def=null) => { try { const v=localStorage.getItem(k); return v?JSON.parse(v):def; } catch{ return def; }},
+  set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch{} },
+  getSession: () => LS.get('fh_session', null),
+  saveSession: (s) => LS.set('fh_session', s),
+  clearSession: () => localStorage.removeItem('fh_session'),
+};
+
+// ── Firebase helpers ─────────────────────────────────────────────────────────
+const waitForFirebase = () => new Promise((resolve, reject) => {
+  if (window.firebaseReady) { resolve(); return; }
+  const timeout = setTimeout(() => reject(new Error('Firebase timeout')), 10000);
+  window.addEventListener('firebaseReady', () => { clearTimeout(timeout); resolve(); }, { once: true });
+});
+
+// Retry a Firebase operation up to N times
+const fbRetry = async (fn, retries = 3, delay = 800) => {
+  for (let i = 0; i < retries; i++) {
+    try { return await fn(); }
+    catch (e) {
+      if (i < retries - 1) await new Promise(r => setTimeout(r, delay * (i + 1)));
+      else throw e;
+    }
+  }
+};
+
+const fbSaveUser = async (username, userData) => {
+  await fbRetry(async () => {
+    await waitForFirebase();
+    const { db, doc, setDoc } = window.FB;
+    await setDoc(doc(db, 'users', username), userData);
+  });
+};
+
+const fbGetUser = async (username) => {
+  return await fbRetry(async () => {
+    await waitForFirebase();
+    const { db, doc, getDoc } = window.FB;
+    const snap = await getDoc(doc(db, 'users', username));
+    return snap.exists() ? snap.data() : null;
+  });
+};
+
+// ── Family Group Firebase Helpers ────────────────────────────────────────────
+const fbCreateFamily = async (familyId, creatorUsername) => {
+  await fbRetry(async () => {
+    await waitForFirebase();
+    const { db, doc, setDoc } = window.FB;
+    await setDoc(doc(db, 'families', familyId), {
+      createdBy: creatorUsername,
+      members: [creatorUsername],
+      createdAt: Date.now(),
+    });
+  });
+};
+
+const fbGetFamily = async (familyId) => {
+  return await fbRetry(async () => {
+    await waitForFirebase();
+    const { db, doc, getDoc } = window.FB;
+    const snap = await getDoc(doc(db, 'families', familyId));
+    return snap.exists() ? snap.data() : null;
+  });
+};
+
+const fbJoinFamily = async (familyId, username) => {
+  return await fbRetry(async () => {
+    await waitForFirebase();
+    const { db, doc, getDoc, setDoc } = window.FB;
+    const snap = await getDoc(doc(db, 'families', familyId));
+    if (!snap.exists()) return { error: 'Family group not found.' };
+    const data = snap.data();
+    if (data.members.includes(username)) return { error: 'You are already in this family.' };
+    await setDoc(doc(db, 'families', familyId), { ...data, members: [...data.members, username] });
+    return { success: true, family: { ...data, members: [...data.members, username] } };
+  });
+};
+
+const fbSendMessage = async (msg, familyId) => {
+  await waitForFirebase();
+  const { db, collection, addDoc } = window.FB;
+  await addDoc(collection(db, 'families', familyId, 'messages'), { ...msg, timestamp: Date.now() });
+};
+
+const fbListenMessages = (familyId, callback) => {
+  waitForFirebase().then(() => {
+    const { db, collection, onSnapshot, query, orderBy } = window.FB;
+    const q = query(collection(db, 'families', familyId, 'messages'), orderBy('timestamp', 'asc'));
+    return onSnapshot(q, snap => {
+      const msgs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      callback(msgs);
+    });
+  });
+};
+
+// ── Default Data ──────────────────────────────────────────────────────────────
+const defaultData = (role) => ({
+  role,
+  homework: [{id:1,text:'Math worksheet',done:false},{id:2,text:'Read chapter 3',done:false}],
+  backpack: [{id:1,text:'Folder',done:false},{id:2,text:'iPad charged',done:false},{id:3,text:'Water bottle',done:false}],
+  allowance: { earned: 12.50, goal: 20, goalName: 'New game' },
+  streak: 3,
+  budget: { income: 3000, expenses: [{name:'Rent',amount:1200},{name:'Groceries',amount:300},{name:'Utilities',amount:150}] },
+  groceries: [{id:1,text:'Milk',done:false},{id:2,text:'Eggs',done:false},{id:3,text:'Bread',done:false}],
+  bills: [{id:1,name:'Electric',due:'Jun 15',amount:95,paid:false},{id:2,name:'Internet',due:'Jun 20',amount:60,paid:true}],
+  planner: [],
+  sharedTasks: [],
+  sharedGoals: [{id:1,name:'Family Vacation',target:1000,saved:340},{id:2,name:'New Bike for Sam',target:200,saved:80}],
+  sharedGroceries: [],
+  calendarEvents: [{id:1,title:'Science Fair',date:'Jun 10',type:'school'},{id:2,title:'Soccer Practice',date:'Jun 12',type:'school'},{id:3,title:'Tax Deadline',date:'Jun 15',type:'adult'}],
+});
+
+// ── AI ────────────────────────────────────────────────────────────────────────
+const askAI = async (prompt, systemPrompt) => {
+  try {
+    const res = await fetch('/api/claude', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ messages: [{role:'user', content: prompt}], system: systemPrompt })
+    });
+    const data = await res.json();
+    return data.content?.map(b=>b.text||'').join('') || 'Sorry, could not get an answer.';
+  } catch { return 'AI is unavailable right now.'; }
+};
+
+// ── Shared Components ─────────────────────────────────────────────────────────
+function AIBox({ systemPrompt, placeholder, color }) {
+  const [q, setQ] = useState('');
+  const [answer, setAnswer] = useState('');
+  const [loading, setLoading] = useState(false);
+  const ask = async () => {
+    if (!q.trim() || loading) return;
+    setLoading(true); setAnswer('');
+    const r = await askAI(q, systemPrompt);
+    setAnswer(r); setLoading(false);
+  };
+  return (
+    <div style={{background:'#fff',borderRadius:16,padding:18,boxShadow:'0 2px 16px rgba(0,0,0,0.07)'}}>
+      <div style={{display:'flex',gap:10,marginBottom:answer||loading?14:0}}>
+        <input value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>e.key==='Enter'&&ask()} placeholder={placeholder||'Ask me anything...'} className="input-field" style={{flex:1}}/>
+        <button onClick={ask} className="btn" style={{padding:'11px 20px',borderRadius:10,background:color||'#6366f1',color:'#fff',fontWeight:700,fontSize:'0.85rem',whiteSpace:'nowrap'}}>
+          {loading ? <span className="spinner"/> : 'Get Answer'}
+        </button>
+      </div>
+      {loading && <div style={{textAlign:'center',padding:'20px 0',color:'#999',animation:'pulse 1.5s infinite',fontSize:'0.9rem'}}>✨ Thinking...</div>}
+      {answer && !loading && <div style={{background:'#f8faff',borderRadius:12,padding:14,fontSize:'0.88rem',lineHeight:1.7,color:'#334155',borderLeft:`3px solid ${color||'#6366f1'}`,animation:'slideIn 0.3s ease'}}>{answer}</div>}
+    </div>
+  );
+}
+
+function StudyTimer() {
+  const [mins, setMins] = useState(25);
+  const [secs, setSecs] = useState(0);
+  const [running, setRunning] = useState(false);
+  const [done, setDone] = useState(false);
+  const ref = useRef(null);
+  useEffect(()=>{
+    if (running) { ref.current = setInterval(()=>{ setSecs(s=>{ if(s===0){ setMins(m=>{ if(m===0){setRunning(false);setDone(true);clearInterval(ref.current);return 0;} return m-1;}); return 59; } return s-1; }); },1000); }
+    else clearInterval(ref.current);
+    return ()=>clearInterval(ref.current);
+  },[running]);
+  const reset = ()=>{setMins(25);setSecs(0);setRunning(false);setDone(false);};
+  const pct = ((25*60-(mins*60+secs))/(25*60))*100;
+  return (
+    <div style={{background:'linear-gradient(135deg,#667eea,#764ba2)',borderRadius:16,padding:20,color:'#fff',textAlign:'center'}}>
+      <div style={{fontSize:'0.85rem',fontWeight:700,opacity:0.8,marginBottom:12}}>⏱ STUDY TIMER</div>
+      <div style={{position:'relative',width:100,height:100,margin:'0 auto 14px'}}>
+        <svg width="100" height="100" style={{transform:'rotate(-90deg)'}}>
+          <circle cx="50" cy="50" r="44" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="8"/>
+          <circle cx="50" cy="50" r="44" fill="none" stroke="#fff" strokeWidth="8" strokeDasharray={`${2*Math.PI*44}`} strokeDashoffset={`${2*Math.PI*44*(1-pct/100)}`} style={{transition:'stroke-dashoffset 1s linear'}}/>
+        </svg>
+        <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:'1.4rem',fontWeight:800}}>{String(mins).padStart(2,'0')}:{String(secs).padStart(2,'0')}</div>
+      </div>
+      {done && <div style={{fontSize:'1.5rem',marginBottom:8}}>🎉 Great work!</div>}
+      <div style={{display:'flex',gap:8,justifyContent:'center'}}>
+        <button onClick={()=>setRunning(r=>!r)} className="btn" style={{padding:'8px 20px',borderRadius:10,background:'rgba(255,255,255,0.2)',color:'#fff',fontWeight:700}}>{running?'Pause':'Start'}</button>
+        <button onClick={reset} className="btn" style={{padding:'8px 16px',borderRadius:10,background:'rgba(255,255,255,0.1)',color:'#fff',fontWeight:700}}>Reset</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Messaging Component (shared across all modes) ─────────────────────────────
+function MessagingTab({ username, role, accentColor, bubbleGradient, familyId }) {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+  const [sending, setSending] = useState(false);
+  const bottomRef = useRef(null);
+
+  useEffect(() => {
+    if (!familyId) return;
+    fbListenMessages(familyId, msgs => setMessages(msgs));
+  }, [familyId]);
+
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+
+  const send = async () => {
+    if (!input.trim() || sending || !familyId) return;
+    setSending(true);
+    await fbSendMessage({
+      sender: username, role, text: input,
+      time: new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
+    }, familyId);
+    setInput('');
+    setSending(false);
+  };
+
+  if (!familyId) return (
+    <div style={{textAlign:'center',padding:'40px 20px',color:'#94a3b8',background:'#fff',borderRadius:16,boxShadow:'0 2px 8px rgba(0,0,0,0.06)'}}>
+      <div style={{fontSize:'3rem',marginBottom:8}}>👨‍👩‍👧</div>
+      <div style={{fontWeight:700,color:'#1e293b',marginBottom:6}}>No family group yet</div>
+      <div style={{fontSize:'0.85rem'}}>Go to Settings to create or join a family group first.</div>
+    </div>
+  );
+
+  return (
+    <div style={{display:'flex',flexDirection:'column',height:'calc(100vh - 210px)'}}>
+      <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:8,paddingBottom:8,background:'#fff',borderRadius:16,padding:14,boxShadow:'0 2px 8px rgba(0,0,0,0.06)',minHeight:0}}>
+        {messages.length===0 && (
+          <div style={{textAlign:'center',padding:'40px 20px',color:'#94a3b8'}}>
+            <div style={{fontSize:'3rem',marginBottom:8}}>💬</div>
+            <div style={{fontWeight:700}}>No messages yet!</div>
+            <div style={{fontSize:'0.85rem',marginTop:4}}>Start the family conversation!</div>
+          </div>
+        )}
+        {messages.map(m => {
+          const isMe = m.sender === username;
+          const avatarBg = m.role==='kid' ? 'linear-gradient(135deg,#f093fb,#f5576c)' : 'linear-gradient(135deg,#4facfe,#00f2fe)';
+          const avatarEmoji = m.role==='kid' ? '🧒' : '🧑';
+          return (
+            <div key={m.id} style={{display:'flex',justifyContent:isMe?'flex-end':'flex-start',gap:8,alignItems:'flex-end'}}>
+              {!isMe && <div style={{width:30,height:30,borderRadius:'50%',background:avatarBg,display:'flex',alignItems:'center',justifyContent:'center',fontSize:'0.9rem',flexShrink:0}}>{avatarEmoji}</div>}
+              <div style={{maxWidth:'72%'}}>
+                {!isMe && <div style={{fontSize:'0.7rem',color:'#94a3b8',marginBottom:3,fontWeight:700}}>{m.sender} {m.role==='kid'?'(Kid)':'(Adult)'}</div>}
+                <div style={{padding:'10px 14px',borderRadius:isMe?'18px 18px 4px 18px':'18px 18px 18px 4px',background:isMe?bubbleGradient:'#f1f5f9',color:isMe?'#fff':'#1e293b',fontSize:'0.9rem',lineHeight:1.5,fontWeight:500,boxShadow:'0 2px 8px rgba(0,0,0,0.08)'}}>{m.text}</div>
+                <div style={{fontSize:'0.68rem',color:'#94a3b8',marginTop:3,textAlign:isMe?'right':'left'}}>{m.time}</div>
+              </div>
+              {isMe && <div style={{width:30,height:30,borderRadius:'50%',background:bubbleGradient,display:'flex',alignItems:'center',justifyContent:'center',fontSize:'0.9rem',flexShrink:0}}>{avatarEmoji}</div>}
+            </div>
+          );
+        })}
+        <div ref={bottomRef}/>
+      </div>
+      <div style={{display:'flex',gap:8,paddingTop:12,borderTop:`1px solid ${accentColor}33`}}>
+        <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&send()}
+          placeholder="Message your family..."
+          className="input-field" style={{flex:1}}/>
+        <button onClick={send} className="btn" style={{padding:'11px 18px',borderRadius:10,background:bubbleGradient,color:'#fff',fontWeight:700}}>
+          {sending ? <span className="spinner"/> : 'Send'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Family Setup Screen ───────────────────────────────────────────────────────
+function FamilySetup({ username, currentFamilyId, currentMembers, onDone }) {
+  const [mode, setMode] = useState('choose'); // choose | create | join
+  const [familyName, setFamilyName] = useState('');
+  const [joinCode, setJoinCode] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const createFamily = async () => {
+    if (!familyName.trim()) { setError('Enter a family name.'); return; }
+    setLoading(true); setError('');
+    const id = familyName.trim().toLowerCase().replace(/\s+/g, '-') + '-' + Math.random().toString(36).slice(2, 7);
+    try {
+      await fbCreateFamily(id, username);
+      setSuccess(`Family "${familyName}" created! Your code: ${id}`);
+      setTimeout(() => onDone(id, [username]), 2000);
+    } catch (e) { setError('Could not create family. Try again.'); }
+    setLoading(false);
+  };
+
+  const joinFamily = async () => {
+    if (!joinCode.trim()) { setError('Enter a family code.'); return; }
+    setLoading(true); setError('');
+    try {
+      const result = await fbJoinFamily(joinCode.trim().toLowerCase(), username);
+      if (result.error) { setError(result.error); setLoading(false); return; }
+      setSuccess(`Joined family successfully! 🎉`);
+      setTimeout(() => onDone(joinCode.trim().toLowerCase(), result.family.members), 2000);
+    } catch (e) { setError('Could not join family. Check the code and try again.'); }
+    setLoading(false);
+  };
+
+  return (
+    <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#0f0c29,#302b63,#24243e)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+      <div style={{width:'100%',maxWidth:420,animation:'fadeUp 0.5s ease'}}>
+        <div style={{textAlign:'center',marginBottom:28}}>
+          <div style={{fontSize:'3rem',marginBottom:8}}>👨‍👩‍👧</div>
+          <h1 style={{color:'#fff',fontSize:'1.8rem',fontWeight:800}}>Family Group</h1>
+          <p style={{color:'rgba(255,255,255,0.5)',fontSize:'0.85rem',marginTop:4}}>Connect with your family to share messages</p>
+        </div>
+
+        {currentFamilyId && (
+          <div style={{background:'rgba(67,233,123,0.15)',border:'1px solid rgba(67,233,123,0.4)',borderRadius:16,padding:16,marginBottom:20,textAlign:'center'}}>
+            <div style={{color:'#43e97b',fontWeight:700,marginBottom:6}}>✅ You're in a family group!</div>
+            <div style={{color:'rgba(255,255,255,0.6)',fontSize:'0.8rem',marginBottom:4}}>Family Code:</div>
+            <div style={{color:'#fff',fontWeight:800,fontSize:'0.95rem',background:'rgba(0,0,0,0.3)',borderRadius:8,padding:'6px 12px',display:'inline-block',letterSpacing:'0.5px'}}>{currentFamilyId}</div>
+            <div style={{color:'rgba(255,255,255,0.5)',fontSize:'0.78rem',marginTop:8}}>Share this code with family members so they can join</div>
+            <div style={{marginTop:10,color:'rgba(255,255,255,0.6)',fontSize:'0.8rem'}}>👥 Members: {currentMembers?.join(', ')}</div>
+          </div>
+        )}
+
+        <div style={{background:'rgba(255,255,255,0.07)',borderRadius:20,padding:24,border:'1px solid rgba(255,255,255,0.1)'}}>
+          {mode==='choose' && (
+            <div style={{display:'flex',flexDirection:'column',gap:12}}>
+              <button onClick={()=>setMode('create')} className="btn" style={{padding:'14px',borderRadius:14,background:'linear-gradient(135deg,#43e97b,#38f9d7)',color:'#fff',fontWeight:800,fontSize:'1rem'}}>
+                ➕ Create a New Family Group
+              </button>
+              <button onClick={()=>setMode('join')} className="btn" style={{padding:'14px',borderRadius:14,background:'linear-gradient(135deg,#4facfe,#00f2fe)',color:'#fff',fontWeight:800,fontSize:'1rem'}}>
+                🔗 Join Existing Family
+              </button>
+              <button onClick={()=>onDone(currentFamilyId, currentMembers)} className="btn" style={{padding:'12px',borderRadius:14,background:'rgba(255,255,255,0.08)',color:'rgba(255,255,255,0.5)',fontWeight:600,fontSize:'0.85rem'}}>
+                Cancel
+              </button>
+            </div>
+          )}
+
+          {mode==='create' && (
+            <div>
+              <div style={{color:'#fff',fontWeight:700,marginBottom:16,fontSize:'1rem'}}>➕ Create Family Group</div>
+              <input value={familyName} onChange={e=>setFamilyName(e.target.value)} placeholder="Family name (e.g. The Smiths)"
+                className="input-field" style={{background:'rgba(255,255,255,0.08)',border:'1.5px solid rgba(255,255,255,0.15)',color:'#fff',marginBottom:12}}
+                onKeyDown={e=>e.key==='Enter'&&createFamily()}/>
+              {error && <div style={{color:'#fca5a5',fontSize:'0.83rem',marginBottom:10}}>⚠️ {error}</div>}
+              {success && <div style={{color:'#86efac',fontSize:'0.83rem',marginBottom:10}}>✅ {success}</div>}
+              <div style={{display:'flex',gap:8}}>
+                <button onClick={()=>{setMode('choose');setError('');}} className="btn" style={{flex:1,padding:'11px',borderRadius:12,background:'rgba(255,255,255,0.08)',color:'rgba(255,255,255,0.5)',fontWeight:600}}>Back</button>
+                <button onClick={createFamily} disabled={loading} className="btn" style={{flex:2,padding:'11px',borderRadius:12,background:'linear-gradient(135deg,#43e97b,#38f9d7)',color:'#fff',fontWeight:700}}>
+                  {loading ? <span className="spinner"/> : 'Create Group'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {mode==='join' && (
+            <div>
+              <div style={{color:'#fff',fontWeight:700,marginBottom:16,fontSize:'1rem'}}>🔗 Join Family Group</div>
+              <div style={{color:'rgba(255,255,255,0.5)',fontSize:'0.82rem',marginBottom:10}}>Ask a family member for their Family Code and paste it below.</div>
+              <input value={joinCode} onChange={e=>setJoinCode(e.target.value)} placeholder="Paste family code here..."
+                className="input-field" style={{background:'rgba(255,255,255,0.08)',border:'1.5px solid rgba(255,255,255,0.15)',color:'#fff',marginBottom:12}}
+                onKeyDown={e=>e.key==='Enter'&&joinFamily()}/>
+              {error && <div style={{color:'#fca5a5',fontSize:'0.83rem',marginBottom:10}}>⚠️ {error}</div>}
+              {success && <div style={{color:'#86efac',fontSize:'0.83rem',marginBottom:10}}>✅ {success}</div>}
+              <div style={{display:'flex',gap:8}}>
+                <button onClick={()=>{setMode('choose');setError('');}} className="btn" style={{flex:1,padding:'11px',borderRadius:12,background:'rgba(255,255,255,0.08)',color:'rgba(255,255,255,0.5)',fontWeight:600}}>Back</button>
+                <button onClick={joinFamily} disabled={loading} className="btn" style={{flex:2,padding:'11px',borderRadius:12,background:'linear-gradient(135deg,#4facfe,#00f2fe)',color:'#fff',fontWeight:700}}>
+                  {loading ? <span className="spinner"/> : 'Join Group'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── AUTH ──────────────────────────────────────────────────────────────────────
+function AuthScreen({ onLogin }) {  // onLogin(username, role, data, familyId, familyMembers)
+  const [isLogin, setIsLogin] = useState(true);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [role, setRole] = useState('adult');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const submit = async () => {
+    setError(''); setLoading(true);
+    if (!username.trim() || !password.trim()) { setError('Please fill in all fields.'); setLoading(false); return; }
+    try {
+      if (isLogin) {
+        const user = await fbGetUser(username);
+        if (!user) { setError('Account not found. Please sign up.'); setLoading(false); return; }
+        if (user.password !== password) { setError('Incorrect password.'); setLoading(false); return; }
+        LS.saveSession({ username, role: user.role });
+        onLogin(username, user.role, user.appData || defaultData(user.role), user.familyId || null, user.familyMembers || []);
+      } else {
+        if (password !== confirm) { setError("Passwords don't match."); setLoading(false); return; }
+        if (password.length < 4) { setError('Password must be at least 4 characters.'); setLoading(false); return; }
+        const existing = await fbGetUser(username);
+        if (existing) { setError('Username already taken.'); setLoading(false); return; }
+        const data = defaultData(role);
+        await fbSaveUser(username, { password, role, appData: data, familyId: null, familyMembers: [] });
+        LS.saveSession({ username, role });
+        onLogin(username, role, data, null, []);
+      }
+    } catch (e) {
+      console.error('Auth error:', e);
+      if (e.message?.includes('timeout')) setError('Firebase is loading slowly — please wait a moment and try again.');
+      else if (e.message?.includes('network') || e.message?.includes('offline')) setError('No internet connection. Please check your network.');
+      else setError('Something went wrong. Please wait a moment and try again.');
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#0f0c29,#302b63,#24243e)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+      <div style={{width:'100%',maxWidth:420,animation:'fadeUp 0.6s ease'}}>
+        <div style={{textAlign:'center',marginBottom:32}}>
+          <div style={{fontSize:'3.5rem',marginBottom:8,animation:'float 3s ease-in-out infinite'}}>🏠</div>
+          <h1 style={{color:'#fff',fontSize:'2.2rem',fontWeight:800,letterSpacing:'-1px'}}>FamilyHub</h1>
+          <p style={{color:'rgba(255,255,255,0.5)',fontSize:'0.9rem',marginTop:4}}>Sign in from any device, anywhere</p>
+        </div>
+        <div style={{background:'rgba(255,255,255,0.07)',backdropFilter:'blur(20px)',borderRadius:24,padding:28,border:'1px solid rgba(255,255,255,0.1)'}}>
+          <div style={{display:'flex',background:'rgba(0,0,0,0.3)',borderRadius:12,padding:4,marginBottom:24}}>
+            {['Sign In','Sign Up'].map((t,i)=>(
+              <button key={t} onClick={()=>{setIsLogin(i===0);setError('');}} className="btn" style={{flex:1,padding:'9px',borderRadius:10,fontSize:'0.85rem',fontWeight:700,background:(isLogin&&i===0)||(!isLogin&&i===1)?'rgba(255,255,255,0.15)':'transparent',color:(isLogin&&i===0)||(!isLogin&&i===1)?'#fff':'rgba(255,255,255,0.4)'}}>{t}</button>
+            ))}
+          </div>
+          <div style={{display:'flex',flexDirection:'column',gap:14}}>
+            <input className="input-field" value={username} onChange={e=>setUsername(e.target.value)} placeholder="Username" style={{background:'rgba(255,255,255,0.08)',border:'1.5px solid rgba(255,255,255,0.15)',color:'#fff'}} onKeyDown={e=>e.key==='Enter'&&submit()}/>
+            <input className="input-field" type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Password" style={{background:'rgba(255,255,255,0.08)',border:'1.5px solid rgba(255,255,255,0.15)',color:'#fff'}} onKeyDown={e=>e.key==='Enter'&&submit()}/>
+            {!isLogin && <>
+              <input className="input-field" type="password" value={confirm} onChange={e=>setConfirm(e.target.value)} placeholder="Confirm Password" style={{background:'rgba(255,255,255,0.08)',border:'1.5px solid rgba(255,255,255,0.15)',color:'#fff'}} onKeyDown={e=>e.key==='Enter'&&submit()}/>
+              <div>
+                <p style={{color:'rgba(255,255,255,0.6)',fontSize:'0.8rem',marginBottom:8,fontWeight:600}}>I AM A...</p>
+                <div style={{display:'flex',gap:10}}>
+                  {[['adult','🧑 Adult'],['kid','🧒 Kid']].map(([r,label])=>(
+                    <button key={r} onClick={()=>setRole(r)} className="btn" style={{flex:1,padding:'10px',borderRadius:12,fontSize:'0.85rem',fontWeight:700,background:role===r?(r==='kid'?'linear-gradient(135deg,#f093fb,#f5576c)':'linear-gradient(135deg,#4facfe,#00f2fe)'):'rgba(255,255,255,0.08)',color:'#fff',border:role===r?'none':'1.5px solid rgba(255,255,255,0.15)'}}>{label}</button>
+                  ))}
+                </div>
+              </div>
+            </>}
+            {error && <div style={{background:'rgba(239,68,68,0.2)',border:'1px solid rgba(239,68,68,0.4)',borderRadius:10,padding:'10px 14px',color:'#fca5a5',fontSize:'0.85rem'}}>⚠️ {error}</div>}
+            <button onClick={submit} disabled={loading} className="btn" style={{padding:'13px',borderRadius:12,fontWeight:800,fontSize:'1rem',background:'linear-gradient(135deg,#667eea,#764ba2)',color:'#fff',boxShadow:'0 8px 24px rgba(102,126,234,0.4)',marginTop:4,opacity:loading?0.7:1}}>
+              {loading ? <span className="spinner"/> : (isLogin ? 'Sign In →' : 'Create Account →')}
+            </button>
+          </div>
+        </div>
+        <p style={{color:'rgba(255,255,255,0.3)',fontSize:'0.75rem',textAlign:'center',marginTop:16}}>☁️ Accounts saved in the cloud — sign in from any device!</p>
+      </div>
+    </div>
+  );
+}
+
+// ── MODE SELECTOR ─────────────────────────────────────────────────────────────
+function ModeSelector({ username, userRole, onSelect, onLogout, onFamilySetup, familyId }) {
+  const modes = userRole==='kid'
+    ? [['kid','🧒','Kid Mode','Homework, rewards & learning','linear-gradient(135deg,#f093fb,#f5576c)','rgba(240,147,251,0.3)'],
+       ['combo','🔄','Family Mode','Connect with your family','linear-gradient(135deg,#43e97b,#38f9d7)','rgba(67,233,123,0.3)']]
+    : [['kid','🧒','Kid Mode','See what your kids are up to','linear-gradient(135deg,#f093fb,#f5576c)','rgba(240,147,251,0.3)'],
+       ['adult','🧑','Adult Mode','Planning, budget & life tools','linear-gradient(135deg,#4facfe,#00f2fe)','rgba(79,172,254,0.3)'],
+       ['combo','🔄','Family Mode','Shared dashboard & messaging','linear-gradient(135deg,#43e97b,#38f9d7)','rgba(67,233,123,0.3)']];
+  return (
+    <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#0f0c29,#302b63,#24243e)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+      <div style={{width:'100%',maxWidth:560,animation:'fadeUp 0.5s ease'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:32}}>
+          <div>
+            <div style={{fontSize:'2.5rem',marginBottom:4}}>🏠</div>
+            <h1 style={{color:'#fff',fontSize:'1.8rem',fontWeight:800,letterSpacing:'-0.5px'}}>FamilyHub</h1>
+            <p style={{color:'rgba(255,255,255,0.5)',fontSize:'0.85rem'}}>Welcome back, <strong style={{color:'rgba(255,255,255,0.8)'}}>{username}</strong>!</p>
+          </div>
+          <div style={{display:'flex',gap:8,flexDirection:'column',alignItems:'flex-end'}}>
+            <button onClick={onLogout} className="btn" style={{padding:'8px 16px',borderRadius:10,background:'rgba(255,255,255,0.08)',color:'rgba(255,255,255,0.6)',fontSize:'0.8rem',border:'1px solid rgba(255,255,255,0.1)'}}>Log Out</button>
+            <button onClick={onFamilySetup} className="btn" style={{padding:'6px 12px',borderRadius:10,background:familyId?'rgba(67,233,123,0.2)':'rgba(255,200,0,0.2)',color:familyId?'#43e97b':'#fbbf24',fontSize:'0.75rem',border:`1px solid ${familyId?'rgba(67,233,123,0.4)':'rgba(251,191,36,0.4)'}`}}>
+              {familyId ? '👨‍👩‍👧 Family ✓' : '👨‍👩‍👧 Setup Family'}
+            </button>
+          </div>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:modes.length===2?'1fr 1fr':'1fr 1fr 1fr',gap:16}}>
+          {modes.map(([id,emoji,title,desc,bg,glow])=>(
+            <button key={id} onClick={()=>onSelect(id)} className="btn" style={{padding:'24px 20px',borderRadius:20,background:bg,boxShadow:`0 12px 32px ${glow}`,textAlign:'left',color:'#fff'}}>
+              <div style={{fontSize:'2.5rem',marginBottom:12}}>{emoji}</div>
+              <div style={{fontWeight:800,fontSize:'1.05rem',marginBottom:6}}>{title}</div>
+              <div style={{fontSize:'0.78rem',opacity:0.85,lineHeight:1.4}}>{desc}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── KID MODE ──────────────────────────────────────────────────────────────────
+function KidMode({ username, data, onSave, onBack, onLogout, familyId }) {
+  const [tab, setTab] = useState('home');
+  const [hw, setHw] = useState(data.homework||[]);
+  const [bp, setBp] = useState(data.backpack||[]);
+  const [newHw, setNewHw] = useState('');
+  const [newBp, setNewBp] = useState('');
+  const [allowance, setAllowance] = useState(data.allowance||{earned:0,goal:20,goalName:'My Goal'});
+  const [streak] = useState(data.streak||0);
+
+  useEffect(()=>{ onSave({...data, homework:hw, backpack:bp, allowance}); },[hw,bp,allowance]);
+
+  const tabs = [['home','🏠'],['homework','📚'],['backpack','🎒'],['allowance','💰'],['timer','⏱'],['messages','💬'],['ai','🤖']];
+
+  return (
+    <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#fff9c4,#ffecd2,#ffd6e7,#d4f1ff)',fontFamily:"'Nunito',sans-serif"}}>
+      {['⭐','🌈','🎨','🦄','🚀','🍭'].map((e,i)=>(
+        <div key={i} style={{position:'fixed',fontSize:`${1.2+(i%3)*0.4}rem`,left:`${(i*17)%92}%`,top:`${(i*19+5)%88}%`,opacity:0.1,pointerEvents:'none',animation:`float ${4+i}s ease-in-out infinite`,animationDelay:`${i*0.5}s`}}>{e}</div>
+      ))}
+      <div style={{background:'rgba(255,255,255,0.7)',backdropFilter:'blur(10px)',padding:'12px 16px',position:'sticky',top:0,zIndex:100,borderBottom:'2px solid rgba(255,107,157,0.2)'}}>
+        <div style={{maxWidth:520,margin:'0 auto',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+          <div>
+            <div style={{fontWeight:900,fontSize:'1.2rem',color:'#ff6b9d'}}>🌟 KidZone</div>
+            <div style={{fontSize:'0.75rem',color:'#999'}}>Hi {username}! 🎉 {streak} day streak!</div>
+          </div>
+          <div style={{display:'flex',gap:8}}>
+            <button onClick={onBack} className="btn" style={{padding:'6px 14px',borderRadius:20,background:'rgba(255,107,157,0.1)',color:'#ff6b9d',fontSize:'0.75rem',fontWeight:700}}>Switch</button>
+            <button onClick={onLogout} className="btn" style={{padding:'6px 14px',borderRadius:20,background:'rgba(0,0,0,0.07)',color:'#888',fontSize:'0.75rem',fontWeight:700}}>Out</button>
+          </div>
+        </div>
+      </div>
+      <div style={{background:'rgba(255,255,255,0.8)',padding:'8px 16px',overflowX:'auto',display:'flex',gap:6,borderBottom:'1px solid rgba(0,0,0,0.05)'}}>
+        {tabs.map(([t,e])=>(
+          <button key={t} onClick={()=>setTab(t)} className="btn" style={{padding:'7px 14px',borderRadius:20,fontSize:'0.8rem',fontWeight:700,whiteSpace:'nowrap',background:tab===t?'linear-gradient(135deg,#f093fb,#f5576c)':'rgba(0,0,0,0.05)',color:tab===t?'#fff':'#888',boxShadow:tab===t?'0 4px 12px rgba(245,87,108,0.4)':'none'}}>{e} {t.charAt(0).toUpperCase()+t.slice(1)}</button>
+        ))}
+      </div>
+      <div style={{maxWidth:520,margin:'0 auto',padding:'16px 14px'}}>
+        {tab==='home' && (
+          <div style={{display:'flex',flexDirection:'column',gap:14,animation:'fadeUp 0.4s ease'}}>
+            <div style={{background:'linear-gradient(135deg,#f093fb,#f5576c)',borderRadius:20,padding:20,color:'#fff'}}>
+              <div style={{fontSize:'2rem',marginBottom:8}}>👋</div>
+              <div style={{fontWeight:900,fontSize:'1.3rem'}}>Hey {username}!</div>
+              <div style={{opacity:0.9,fontSize:'0.88rem',marginTop:4}}>You have {hw.filter(h=>!h.done).length} homework tasks left today.</div>
+              <div style={{marginTop:12,background:'rgba(255,255,255,0.2)',borderRadius:12,padding:'10px 14px'}}>
+                <div style={{fontSize:'0.8rem',opacity:0.85}}>🔥 Current Streak</div>
+                <div style={{fontWeight:900,fontSize:'1.5rem'}}>{streak} days</div>
+              </div>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+              {[['📚','Homework',`${hw.filter(h=>h.done).length}/${hw.length} done`,'homework'],
+                ['🎒','Backpack',`${bp.filter(b=>b.done).length}/${bp.length} packed`,'backpack'],
+                ['💰','Allowance',`$${allowance.earned.toFixed(2)} earned`,'allowance'],
+                ['💬','Messages','Chat with family!','messages']
+              ].map(([e,t,s,target])=>(
+                <button key={t} onClick={()=>setTab(target)} className="btn card" style={{padding:'16px',textAlign:'left',display:'block',border:'none'}}>
+                  <div style={{fontSize:'1.6rem',marginBottom:6}}>{e}</div>
+                  <div style={{fontWeight:800,fontSize:'0.95rem',color:'#1e293b'}}>{t}</div>
+                  <div style={{fontSize:'0.78rem',color:'#94a3b8',marginTop:2}}>{s}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {tab==='homework' && (
+          <div style={{animation:'fadeUp 0.4s ease'}}>
+            <h2 style={{fontWeight:900,color:'#1e293b',marginBottom:16}}>📚 Homework Checklist</h2>
+            <div style={{display:'flex',gap:8,marginBottom:16}}>
+              <input value={newHw} onChange={e=>setNewHw(e.target.value)} onKeyDown={e=>e.key==='Enter'&&newHw.trim()&&(setHw([...hw,{id:Date.now(),text:newHw,done:false}]),setNewHw(''))} placeholder="Add homework..." className="input-field"/>
+              <button onClick={()=>{if(newHw.trim()){setHw([...hw,{id:Date.now(),text:newHw,done:false}]);setNewHw('');}}} className="btn" style={{padding:'11px 16px',borderRadius:10,background:'#f5576c',color:'#fff',fontWeight:700}}>+</button>
+            </div>
+            {hw.map(h=>(
+              <div key={h.id} style={{background:'#fff',borderRadius:14,padding:'12px 14px',display:'flex',alignItems:'center',gap:12,marginBottom:8,boxShadow:'0 2px 8px rgba(0,0,0,0.06)',border:`2px solid ${h.done?'#84fab0':'#f3f4f6'}`}}>
+                <button onClick={()=>setHw(hw.map(x=>x.id===h.id?{...x,done:!x.done}:x))} className="btn" style={{width:26,height:26,borderRadius:8,flexShrink:0,background:h.done?'#84fab0':'#f1f5f9',border:`2px solid ${h.done?'#52c78a':'#e2e8f0'}`,color:'#fff',fontWeight:900,fontSize:'0.8rem'}}>{h.done?'✓':''}</button>
+                <span style={{flex:1,fontWeight:700,color:h.done?'#94a3b8':'#1e293b',textDecoration:h.done?'line-through':'none',fontSize:'0.92rem'}}>{h.text}</span>
+                <button onClick={()=>setHw(hw.filter(x=>x.id!==h.id))} className="btn" style={{background:'rgba(239,68,68,0.1)',color:'#ef4444',borderRadius:8,padding:'4px 8px',fontSize:'0.8rem'}}>✕</button>
+              </div>
+            ))}
+            {hw.length===0&&<div style={{textAlign:'center',padding:'30px',color:'#94a3b8'}}>🎉 No homework!</div>}
+          </div>
+        )}
+        {tab==='backpack' && (
+          <div style={{animation:'fadeUp 0.4s ease'}}>
+            <h2 style={{fontWeight:900,color:'#1e293b',marginBottom:16}}>🎒 Backpack Checklist</h2>
+            <div style={{display:'flex',gap:8,marginBottom:16}}>
+              <input value={newBp} onChange={e=>setNewBp(e.target.value)} onKeyDown={e=>e.key==='Enter'&&newBp.trim()&&(setBp([...bp,{id:Date.now(),text:newBp,done:false}]),setNewBp(''))} placeholder="Add item..." className="input-field"/>
+              <button onClick={()=>{if(newBp.trim()){setBp([...bp,{id:Date.now(),text:newBp,done:false}]);setNewBp('');}}} className="btn" style={{padding:'11px 16px',borderRadius:10,background:'#f093fb',color:'#fff',fontWeight:700}}>+</button>
+            </div>
+            {bp.map(b=>(
+              <div key={b.id} style={{background:'#fff',borderRadius:14,padding:'12px 14px',display:'flex',alignItems:'center',gap:12,marginBottom:8,boxShadow:'0 2px 8px rgba(0,0,0,0.06)',border:`2px solid ${b.done?'#a78bfa':'#f3f4f6'}`}}>
+                <button onClick={()=>setBp(bp.map(x=>x.id===b.id?{...x,done:!x.done}:x))} className="btn" style={{width:26,height:26,borderRadius:8,background:b.done?'#a78bfa':'#f1f5f9',border:`2px solid ${b.done?'#7c3aed':'#e2e8f0'}`,color:'#fff',fontWeight:900,fontSize:'0.8rem'}}>{b.done?'✓':''}</button>
+                <span style={{flex:1,fontWeight:700,color:b.done?'#94a3b8':'#1e293b',textDecoration:b.done?'line-through':'none',fontSize:'0.92rem'}}>{b.text}</span>
+                <button onClick={()=>setBp(bp.filter(x=>x.id!==b.id))} className="btn" style={{background:'rgba(239,68,68,0.1)',color:'#ef4444',borderRadius:8,padding:'4px 8px',fontSize:'0.8rem'}}>✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+        {tab==='allowance' && (
+          <div style={{animation:'fadeUp 0.4s ease'}}>
+            <h2 style={{fontWeight:900,color:'#1e293b',marginBottom:16}}>💰 Allowance Tracker</h2>
+            <div style={{background:'linear-gradient(135deg,#43e97b,#38f9d7)',borderRadius:20,padding:20,color:'#fff',marginBottom:16}}>
+              <div style={{fontSize:'0.85rem',opacity:0.85}}>Total Earned</div>
+              <div style={{fontSize:'2.5rem',fontWeight:900}}>${allowance.earned.toFixed(2)}</div>
+              <div style={{marginTop:12}}>
+                <div style={{display:'flex',justifyContent:'space-between',fontSize:'0.8rem',opacity:0.85,marginBottom:6}}><span>🎯 {allowance.goalName}</span><span>${allowance.earned.toFixed(2)} / ${allowance.goal}</span></div>
+                <div style={{background:'rgba(255,255,255,0.3)',borderRadius:20,height:10}}><div style={{background:'#fff',borderRadius:20,height:10,width:`${Math.min((allowance.earned/allowance.goal)*100,100)}%`,transition:'width 0.5s ease'}}/></div>
+              </div>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:16}}>
+              <button onClick={()=>setAllowance(a=>({...a,earned:+(a.earned+1).toFixed(2)}))} className="btn" style={{padding:'12px',borderRadius:14,background:'#43e97b',color:'#fff',fontWeight:800}}>+ $1.00 Earned</button>
+              <button onClick={()=>setAllowance(a=>({...a,earned:Math.max(0,+(a.earned-1).toFixed(2))}))} className="btn" style={{padding:'12px',borderRadius:14,background:'#f5576c',color:'#fff',fontWeight:800}}>- $1.00 Spent</button>
+            </div>
+            <div className="card" style={{padding:16}}>
+              <div style={{fontWeight:800,marginBottom:10,color:'#1e293b'}}>Set Savings Goal</div>
+              <input value={allowance.goalName} onChange={e=>setAllowance(a=>({...a,goalName:e.target.value}))} placeholder="Goal name" className="input-field" style={{marginBottom:10}}/>
+              <input type="number" value={allowance.goal} onChange={e=>setAllowance(a=>({...a,goal:+e.target.value}))} placeholder="Goal amount $" className="input-field"/>
+            </div>
+          </div>
+        )}
+        {tab==='timer' && (
+          <div style={{animation:'fadeUp 0.4s ease'}}>
+            <h2 style={{fontWeight:900,color:'#1e293b',marginBottom:16}}>⏱ Study Timer</h2>
+            <StudyTimer/>
+          </div>
+        )}
+        {tab==='messages' && (
+          <div style={{animation:'fadeUp 0.4s ease'}}>
+            <h2 style={{fontWeight:900,color:'#1e293b',marginBottom:12}}>💬 Family Messages</h2>
+            <MessagingTab username={username} role="kid" accentColor="#f5576c" bubbleGradient="linear-gradient(135deg,#f093fb,#f5576c)" familyId={familyId}/>
+          </div>
+        )}
+        {tab==='ai' && (
+          <div style={{animation:'fadeUp 0.4s ease'}}>
+            <h2 style={{fontWeight:900,color:'#1e293b',marginBottom:6}}>🤖 AI Homework Helper</h2>
+            <p style={{color:'#64748b',fontSize:'0.85rem',marginBottom:16}}>Ask any question or paste something confusing!</p>
+            <AIBox systemPrompt="You are a friendly homework helper for kids aged 5-12. Give clear, simple, encouraging explanations. Use examples and emojis. Keep answers fun and easy to understand." placeholder="Ask anything or paste your homework question..." color="#f5576c"/>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── ADULT MODE ────────────────────────────────────────────────────────────────
+function AdultMode({ username, data, onSave, onBack, onLogout, familyId }) {
+  const [tab, setTab] = useState('home');
+  const [budget, setBudget] = useState(data.budget||{income:3000,expenses:[]});
+  const [groceries, setGroceries] = useState(data.groceries||[]);
+  const [bills, setBills] = useState(data.bills||[]);
+  const [planner, setPlanner] = useState(data.planner||[]);
+  const [newItem, setNewItem] = useState('');
+  const [newBill, setNewBill] = useState({name:'',amount:'',due:''});
+
+  useEffect(()=>{ onSave({...data, budget, groceries, bills, planner}); },[budget,groceries,bills,planner]);
+
+  const spent = budget.expenses.reduce((s,e)=>s+e.amount,0);
+  const remaining = budget.income - spent;
+
+  return (
+    <div style={{minHeight:'100vh',background:'#f1f5f9',fontFamily:"'Sora',sans-serif"}}>
+      <div style={{background:'linear-gradient(135deg,#0f172a,#1e3a5f)',padding:'14px 16px',position:'sticky',top:0,zIndex:100}}>
+        <div style={{maxWidth:600,margin:'0 auto',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+          <div>
+            <div style={{fontWeight:800,fontSize:'1.15rem',color:'#fff'}}>💼 FamilyHub</div>
+            <div style={{fontSize:'0.72rem',color:'rgba(255,255,255,0.5)'}}>Adult Mode · {username}</div>
+          </div>
+          <div style={{display:'flex',gap:8}}>
+            <button onClick={onBack} className="btn" style={{padding:'6px 14px',borderRadius:10,background:'rgba(255,255,255,0.1)',color:'rgba(255,255,255,0.7)',fontSize:'0.75rem',fontWeight:700}}>Switch</button>
+            <button onClick={onLogout} className="btn" style={{padding:'6px 14px',borderRadius:10,background:'rgba(255,255,255,0.08)',color:'rgba(255,255,255,0.5)',fontSize:'0.75rem'}}>Log Out</button>
+          </div>
+        </div>
+      </div>
+      <div style={{background:'#fff',borderBottom:'1px solid #e2e8f0',padding:'0 16px',overflowX:'auto',display:'flex',gap:2}}>
+        {[['home','🏠 Home'],['budget','💰 Budget'],['groceries','🛒 Groceries'],['bills','📋 Bills'],['planner','📅 Planner'],['messages','💬 Messages'],['ai','🤖 AI Help']].map(([t,l])=>(
+          <button key={t} onClick={()=>setTab(t)} className="btn" style={{padding:'13px 16px',fontWeight:700,fontSize:'0.82rem',whiteSpace:'nowrap',borderBottom:tab===t?'2px solid #3b82f6':'2px solid transparent',color:tab===t?'#3b82f6':'#94a3b8',background:'transparent'}}>{l}</button>
+        ))}
+      </div>
+      <div style={{maxWidth:600,margin:'0 auto',padding:'16px 14px'}}>
+        {tab==='home' && (
+          <div style={{display:'flex',flexDirection:'column',gap:14,animation:'fadeUp 0.4s ease'}}>
+            <div style={{background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',borderRadius:20,padding:20,color:'#fff'}}>
+              <div style={{opacity:0.7,fontSize:'0.85rem'}}>Good day,</div>
+              <div style={{fontWeight:800,fontSize:'1.4rem'}}>{username} 👋</div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,marginTop:14}}>
+                {[['💰',`$${remaining.toFixed(0)}`,'Remaining'],['🛒',`${groceries.filter(g=>!g.done).length}`,'Items left'],['📋',`${bills.filter(b=>!b.paid).length}`,'Bills due']].map(([e,v,l])=>(
+                  <div key={l} style={{background:'rgba(255,255,255,0.1)',borderRadius:12,padding:'10px 12px',textAlign:'center'}}>
+                    <div style={{fontSize:'1.3rem'}}>{e}</div>
+                    <div style={{fontWeight:800,fontSize:'1.1rem'}}>{v}</div>
+                    <div style={{fontSize:'0.7rem',opacity:0.7}}>{l}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="card" style={{padding:16}}>
+              <div style={{fontWeight:800,color:'#1e293b',marginBottom:12}}>📋 Upcoming Bills</div>
+              {bills.filter(b=>!b.paid).slice(0,3).map(b=>(
+                <div key={b.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid #f1f5f9'}}>
+                  <div><div style={{fontWeight:700,fontSize:'0.9rem',color:'#1e293b'}}>{b.name}</div><div style={{fontSize:'0.75rem',color:'#f59e0b'}}>Due {b.due}</div></div>
+                  <div style={{fontWeight:800,color:'#ef4444'}}>${b.amount}</div>
+                </div>
+              ))}
+              {bills.filter(b=>!b.paid).length===0&&<div style={{color:'#94a3b8',fontSize:'0.85rem'}}>✅ All bills paid!</div>}
+            </div>
+          </div>
+        )}
+        {tab==='budget' && (
+          <div style={{animation:'fadeUp 0.4s ease'}}>
+            <h2 style={{fontWeight:800,color:'#1e293b',marginBottom:16}}>💰 Budget Tracker</h2>
+            <div style={{background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',borderRadius:20,padding:20,color:'#fff',marginBottom:16}}>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12,textAlign:'center'}}>
+                {[['Income',`$${budget.income}`,'#93c5fd'],['Spent',`$${spent}`,'#fca5a5'],['Left',`$${remaining}`,'#86efac']].map(([l,v,c])=>(
+                  <div key={l}><div style={{fontSize:'0.75rem',opacity:0.7}}>{l}</div><div style={{fontWeight:900,fontSize:'1.3rem',color:c}}>{v}</div></div>
+                ))}
+              </div>
+              <div style={{marginTop:14,background:'rgba(255,255,255,0.2)',borderRadius:20,height:8}}><div style={{background:'#fca5a5',borderRadius:20,height:8,width:`${Math.min((spent/budget.income)*100,100)}%`,transition:'width 0.5s'}}/></div>
+            </div>
+            <div className="card" style={{padding:16,marginBottom:14}}>
+              <div style={{fontWeight:800,marginBottom:10}}>Monthly Income</div>
+              <input type="number" value={budget.income} onChange={e=>setBudget(b=>({...b,income:+e.target.value}))} className="input-field" placeholder="Monthly income"/>
+            </div>
+            <div className="card" style={{padding:16}}>
+              <div style={{fontWeight:800,marginBottom:12}}>Expenses</div>
+              {budget.expenses.map((e,i)=>(
+                <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid #f1f5f9'}}>
+                  <span style={{fontWeight:600,color:'#475569'}}>{e.name}</span>
+                  <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                    <span style={{fontWeight:800,color:'#ef4444'}}>${e.amount}</span>
+                    <button onClick={()=>setBudget(b=>({...b,expenses:b.expenses.filter((_,j)=>j!==i)}))} className="btn" style={{color:'#ef4444',background:'rgba(239,68,68,0.1)',borderRadius:6,padding:'3px 8px',fontSize:'0.75rem'}}>✕</button>
+                  </div>
+                </div>
+              ))}
+              <div style={{display:'flex',gap:8,marginTop:12}}>
+                <input id="ename" placeholder="Expense name" className="input-field" style={{flex:2}}/>
+                <input id="eamt" type="number" placeholder="Amount" className="input-field" style={{flex:1}}/>
+                <button onClick={()=>{const n=document.getElementById('ename').value;const a=document.getElementById('eamt').value;if(n&&a){setBudget(b=>({...b,expenses:[...b.expenses,{name:n,amount:+a}]}));document.getElementById('ename').value='';document.getElementById('eamt').value='';}}} className="btn" style={{padding:'11px 14px',borderRadius:10,background:'#3b82f6',color:'#fff',fontWeight:700}}>+</button>
+              </div>
+            </div>
+          </div>
+        )}
+        {tab==='groceries' && (
+          <div style={{animation:'fadeUp 0.4s ease'}}>
+            <h2 style={{fontWeight:800,color:'#1e293b',marginBottom:16}}>🛒 Grocery List</h2>
+            <div style={{display:'flex',gap:8,marginBottom:14}}>
+              <input value={newItem} onChange={e=>setNewItem(e.target.value)} onKeyDown={e=>e.key==='Enter'&&newItem.trim()&&(setGroceries([...groceries,{id:Date.now(),text:newItem,done:false}]),setNewItem(''))} placeholder="Add item..." className="input-field"/>
+              <button onClick={()=>{if(newItem.trim()){setGroceries([...groceries,{id:Date.now(),text:newItem,done:false}]);setNewItem('');}}} className="btn" style={{padding:'11px 16px',borderRadius:10,background:'#10b981',color:'#fff',fontWeight:700}}>+</button>
+            </div>
+            {groceries.map(g=>(
+              <div key={g.id} style={{background:'#fff',borderRadius:12,padding:'12px 14px',display:'flex',alignItems:'center',gap:12,marginBottom:8,boxShadow:'0 1px 4px rgba(0,0,0,0.05)',opacity:g.done?0.6:1}}>
+                <button onClick={()=>setGroceries(groceries.map(x=>x.id===g.id?{...x,done:!x.done}:x))} className="btn" style={{width:24,height:24,borderRadius:7,background:g.done?'#10b981':'#f1f5f9',border:`2px solid ${g.done?'#10b981':'#e2e8f0'}`,color:'#fff',fontWeight:900,fontSize:'0.75rem'}}>{g.done?'✓':''}</button>
+                <span style={{flex:1,fontWeight:600,color:g.done?'#94a3b8':'#1e293b',textDecoration:g.done?'line-through':'none',fontSize:'0.92rem'}}>{g.text}</span>
+                <button onClick={()=>setGroceries(groceries.filter(x=>x.id!==g.id))} className="btn" style={{color:'#ef4444',background:'rgba(239,68,68,0.1)',borderRadius:7,padding:'3px 8px',fontSize:'0.78rem'}}>✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+        {tab==='bills' && (
+          <div style={{animation:'fadeUp 0.4s ease'}}>
+            <h2 style={{fontWeight:800,color:'#1e293b',marginBottom:16}}>📋 Bills & Reminders</h2>
+            {bills.map(b=>(
+              <div key={b.id} style={{background:'#fff',borderRadius:14,padding:'14px 16px',display:'flex',alignItems:'center',gap:12,marginBottom:10,boxShadow:'0 2px 8px rgba(0,0,0,0.06)',border:`1.5px solid ${b.paid?'#d1fae5':'#fee2e2'}`}}>
+                <button onClick={()=>setBills(bills.map(x=>x.id===b.id?{...x,paid:!x.paid}:x))} className="btn" style={{width:26,height:26,borderRadius:8,background:b.paid?'#10b981':'transparent',border:`2px solid ${b.paid?'#10b981':'#e2e8f0'}`,color:'#fff',fontWeight:900,fontSize:'0.8rem'}}>{b.paid?'✓':''}</button>
+                <div style={{flex:1}}><div style={{fontWeight:700,color:'#1e293b',fontSize:'0.92rem'}}>{b.name}</div><div style={{fontSize:'0.75rem',color:b.paid?'#10b981':'#f59e0b'}}>Due {b.due}</div></div>
+                <div style={{fontWeight:800,color:b.paid?'#10b981':'#ef4444',fontSize:'1rem'}}>${b.amount}</div>
+                <button onClick={()=>setBills(bills.filter(x=>x.id!==b.id))} className="btn" style={{color:'#ef4444',background:'rgba(239,68,68,0.1)',borderRadius:7,padding:'3px 8px',fontSize:'0.78rem'}}>✕</button>
+              </div>
+            ))}
+            <div className="card" style={{padding:16,marginTop:8}}>
+              <div style={{fontWeight:700,marginBottom:12,color:'#1e293b'}}>+ Add Bill</div>
+              <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                <input value={newBill.name} onChange={e=>setNewBill(b=>({...b,name:e.target.value}))} placeholder="Bill name" className="input-field"/>
+                <div style={{display:'flex',gap:8}}>
+                  <input value={newBill.amount} onChange={e=>setNewBill(b=>({...b,amount:e.target.value}))} placeholder="Amount $" className="input-field" type="number"/>
+                  <input value={newBill.due} onChange={e=>setNewBill(b=>({...b,due:e.target.value}))} placeholder="Due date" className="input-field"/>
+                </div>
+                <button onClick={()=>{if(newBill.name&&newBill.amount){setBills([...bills,{id:Date.now(),...newBill,amount:+newBill.amount,paid:false}]);setNewBill({name:'',amount:'',due:''});}}} className="btn" style={{padding:'11px',borderRadius:10,background:'#3b82f6',color:'#fff',fontWeight:700}}>Add Bill</button>
+              </div>
+            </div>
+          </div>
+        )}
+        {tab==='planner' && (
+          <div style={{animation:'fadeUp 0.4s ease'}}>
+            <h2 style={{fontWeight:800,color:'#1e293b',marginBottom:16}}>📅 Daily Planner</h2>
+            <div style={{display:'flex',gap:8,marginBottom:14}}>
+              <input value={newItem} onChange={e=>setNewItem(e.target.value)} onKeyDown={e=>e.key==='Enter'&&newItem.trim()&&(setPlanner([...planner,{id:Date.now(),text:newItem,done:false,priority:'medium'}]),setNewItem(''))} placeholder="Add task..." className="input-field"/>
+              <button onClick={()=>{if(newItem.trim()){setPlanner([...planner,{id:Date.now(),text:newItem,done:false,priority:'medium'}]);setNewItem('');}}} className="btn" style={{padding:'11px 16px',borderRadius:10,background:'#6366f1',color:'#fff',fontWeight:700}}>+</button>
+            </div>
+            {planner.map(p=>(
+              <div key={p.id} style={{background:'#fff',borderRadius:12,padding:'12px 14px',display:'flex',alignItems:'center',gap:12,marginBottom:8,boxShadow:'0 1px 4px rgba(0,0,0,0.05)'}}>
+                <button onClick={()=>setPlanner(planner.map(x=>x.id===p.id?{...x,done:!x.done}:x))} className="btn" style={{width:24,height:24,borderRadius:7,background:p.done?'#6366f1':'#f1f5f9',border:`2px solid ${p.done?'#6366f1':'#e2e8f0'}`,color:'#fff',fontWeight:900,fontSize:'0.75rem'}}>{p.done?'✓':''}</button>
+                <span style={{flex:1,fontWeight:600,color:p.done?'#94a3b8':'#1e293b',textDecoration:p.done?'line-through':'none',fontSize:'0.9rem'}}>{p.text}</span>
+                <select value={p.priority} onChange={e=>setPlanner(planner.map(x=>x.id===p.id?{...x,priority:e.target.value}:x))} style={{fontSize:'0.72rem',fontWeight:700,padding:'3px 6px',borderRadius:8,border:'none',color:{high:'#ef4444',medium:'#f59e0b',low:'#10b981'}[p.priority],background:{high:'#fee2e2',medium:'#fef3c7',low:'#d1fae5'}[p.priority]}}>
+                  <option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option>
+                </select>
+                <button onClick={()=>setPlanner(planner.filter(x=>x.id!==p.id))} className="btn" style={{color:'#ef4444',background:'rgba(239,68,68,0.1)',borderRadius:7,padding:'3px 8px',fontSize:'0.78rem'}}>✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+        {tab==='messages' && (
+          <div style={{animation:'fadeUp 0.4s ease'}}>
+            <h2 style={{fontWeight:800,color:'#1e293b',marginBottom:12}}>💬 Family Messages</h2>
+            <MessagingTab username={username} role="adult" accentColor="#3b82f6" bubbleGradient="linear-gradient(135deg,#4facfe,#00f2fe)" familyId={familyId}/>
+          </div>
+        )}
+        {tab==='ai' && (
+          <div style={{animation:'fadeUp 0.4s ease'}}>
+            <h2 style={{fontWeight:800,color:'#1e293b',marginBottom:6}}>🤖 AI Life Assistant</h2>
+            <p style={{color:'#64748b',fontSize:'0.85rem',marginBottom:16}}>Paste a confusing document, ask about finances, taxes, health, or anything else.</p>
+            <AIBox systemPrompt="You are a smart, professional life assistant for adults. Help with finances, taxes, health, legal basics (with disclaimers), productivity, home management, and daily life. Be concise and practical." placeholder="Paste a document or ask anything..." color="#3b82f6"/>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── COMBO MODE ────────────────────────────────────────────────────────────────
+function ComboMode({ username, userRole, data, onSave, onBack, onLogout, familyId }) {
+  const [tab, setTab] = useState('dashboard');
+  const [sharedTasks, setSharedTasks] = useState(data.sharedTasks||[]);
+  const [sharedGoals, setSharedGoals] = useState(data.sharedGoals||[]);
+  const [sharedGroceries, setSharedGroceries] = useState(data.sharedGroceries||[]);
+  const [calendar, setCalendar] = useState(data.calendarEvents||[]);
+  const [newTask, setNewTask] = useState('');
+  const [newGoal, setNewGoal] = useState({name:'',target:''});
+  const [newGrocery, setNewGrocery] = useState('');
+  const [newEvent, setNewEvent] = useState({title:'',date:'',type:'school'});
+
+  useEffect(()=>{ onSave({...data, sharedTasks, sharedGoals, sharedGroceries, calendarEvents:calendar}); },[sharedTasks,sharedGoals,sharedGroceries,calendar]);
+
+  const roleColor = userRole==='kid' ? '#f5576c' : '#3b82f6';
+
+  return (
+    <div style={{minHeight:'100vh',background:'#f8fafc',fontFamily:"'Sora',sans-serif"}}>
+      <div style={{background:'linear-gradient(135deg,#1a1a2e,#16213e,#0f3460)',padding:'13px 16px',position:'sticky',top:0,zIndex:100}}>
+        <div style={{maxWidth:600,margin:'0 auto',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+          <div>
+            <div style={{fontWeight:800,fontSize:'1.1rem',color:'#fff'}}>🔄 Family Mode</div>
+            <div style={{fontSize:'0.72rem',color:'rgba(255,255,255,0.5)'}}>
+              <span style={{background:roleColor,color:'#fff',padding:'1px 7px',borderRadius:20,fontSize:'0.68rem',fontWeight:700,marginRight:6}}>{userRole==='kid'?'KID':'ADULT'}</span>{username}
+            </div>
+          </div>
+          <div style={{display:'flex',gap:8}}>
+            <button onClick={onBack} className="btn" style={{padding:'6px 12px',borderRadius:10,background:'rgba(255,255,255,0.1)',color:'rgba(255,255,255,0.7)',fontSize:'0.75rem',fontWeight:700}}>Switch</button>
+            <button onClick={onLogout} className="btn" style={{padding:'6px 12px',borderRadius:10,background:'rgba(255,255,255,0.07)',color:'rgba(255,255,255,0.5)',fontSize:'0.75rem'}}>Out</button>
+          </div>
+        </div>
+      </div>
+      <div style={{background:'#fff',borderBottom:'1px solid #e2e8f0',padding:'0 16px',overflowX:'auto',display:'flex',gap:2}}>
+        {[['dashboard','🏠'],['tasks','✅ Tasks'],['goals','🎯 Goals'],['groceries','🛒 Shop'],['calendar','📅 Calendar'],['messages','💬 Messages'],['ai','🤖 AI']].map(([t,l])=>(
+          <button key={t} onClick={()=>setTab(t)} className="btn" style={{padding:'13px 14px',fontWeight:700,fontSize:'0.8rem',whiteSpace:'nowrap',borderBottom:tab===t?`2px solid ${roleColor}`:'2px solid transparent',color:tab===t?roleColor:'#94a3b8',background:'transparent'}}>{l}</button>
+        ))}
+      </div>
+      <div style={{maxWidth:600,margin:'0 auto',padding:'16px 14px'}}>
+        {tab==='dashboard' && (
+          <div style={{animation:'fadeUp 0.4s ease',display:'flex',flexDirection:'column',gap:14}}>
+            <div style={{background:`linear-gradient(135deg,${userRole==='kid'?'#f093fb,#f5576c':'#4facfe,#00f2fe'})`,borderRadius:20,padding:20,color:'#fff'}}>
+              <div style={{fontWeight:900,fontSize:'1.3rem',marginBottom:4}}>Family Dashboard 🏠</div>
+              <div style={{opacity:0.85,fontSize:'0.85rem'}}>Everything your family is working on together.</div>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10,marginTop:14}}>
+                {[['✅',`${sharedTasks.filter(t=>!t.done).length}`,'Tasks left'],['🎯',`${sharedGoals.length}`,'Goals'],['📅',`${calendar.length}`,'Events']].map(([e,v,l])=>(
+                  <div key={l} style={{background:'rgba(255,255,255,0.15)',borderRadius:12,padding:'10px',textAlign:'center'}}>
+                    <div style={{fontSize:'1.2rem'}}>{e}</div><div style={{fontWeight:900,fontSize:'1.1rem'}}>{v}</div><div style={{fontSize:'0.68rem',opacity:0.8}}>{l}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="card" style={{padding:16}}>
+              <div style={{fontWeight:800,color:'#1e293b',marginBottom:12}}>✅ Recent Tasks</div>
+              {sharedTasks.slice(0,4).map(t=>(
+                <div key={t.id} style={{display:'flex',alignItems:'center',gap:10,padding:'7px 0',borderBottom:'1px solid #f1f5f9'}}>
+                  <button onClick={()=>setSharedTasks(sharedTasks.map(x=>x.id===t.id?{...x,done:!x.done}:x))} className="btn" style={{width:22,height:22,borderRadius:7,background:t.done?'#10b981':'#f1f5f9',border:`2px solid ${t.done?'#10b981':'#e2e8f0'}`,color:'#fff',fontWeight:900,fontSize:'0.72rem'}}>{t.done?'✓':''}</button>
+                  <span style={{flex:1,fontSize:'0.88rem',fontWeight:600,color:t.done?'#94a3b8':'#1e293b',textDecoration:t.done?'line-through':'none'}}>{t.text}</span>
+                  <span style={{fontSize:'0.72rem',color:'#94a3b8'}}>by {t.by}</span>
+                </div>
+              ))}
+              {sharedTasks.length===0&&<div style={{color:'#94a3b8',fontSize:'0.85rem'}}>No shared tasks yet.</div>}
+            </div>
+          </div>
+        )}
+        {tab==='tasks' && (
+          <div style={{animation:'fadeUp 0.4s ease'}}>
+            <h2 style={{fontWeight:800,color:'#1e293b',marginBottom:16}}>✅ Shared Family Tasks</h2>
+            <div style={{display:'flex',gap:8,marginBottom:14}}>
+              <input value={newTask} onChange={e=>setNewTask(e.target.value)} onKeyDown={e=>e.key==='Enter'&&newTask.trim()&&(setSharedTasks([...sharedTasks,{id:Date.now(),text:newTask,done:false,by:username}]),setNewTask(''))} placeholder="Assign a task..." className="input-field"/>
+              <button onClick={()=>{if(newTask.trim()){setSharedTasks([...sharedTasks,{id:Date.now(),text:newTask,done:false,by:username}]);setNewTask('');}}} className="btn" style={{padding:'11px 16px',borderRadius:10,background:roleColor,color:'#fff',fontWeight:700}}>+</button>
+            </div>
+            {sharedTasks.map(t=>(
+              <div key={t.id} style={{background:'#fff',borderRadius:12,padding:'12px 14px',display:'flex',alignItems:'center',gap:12,marginBottom:8,boxShadow:'0 1px 4px rgba(0,0,0,0.05)'}}>
+                <button onClick={()=>setSharedTasks(sharedTasks.map(x=>x.id===t.id?{...x,done:!x.done}:x))} className="btn" style={{width:24,height:24,borderRadius:7,background:t.done?'#10b981':'#f1f5f9',border:`2px solid ${t.done?'#10b981':'#e2e8f0'}`,color:'#fff',fontWeight:900,fontSize:'0.75rem'}}>{t.done?'✓':''}</button>
+                <div style={{flex:1}}><div style={{fontWeight:700,fontSize:'0.9rem',color:t.done?'#94a3b8':'#1e293b',textDecoration:t.done?'line-through':'none'}}>{t.text}</div><div style={{fontSize:'0.72rem',color:'#94a3b8'}}>by {t.by}</div></div>
+                <button onClick={()=>setSharedTasks(sharedTasks.filter(x=>x.id!==t.id))} className="btn" style={{color:'#ef4444',background:'rgba(239,68,68,0.1)',borderRadius:7,padding:'3px 8px',fontSize:'0.78rem'}}>✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+        {tab==='goals' && (
+          <div style={{animation:'fadeUp 0.4s ease'}}>
+            <h2 style={{fontWeight:800,color:'#1e293b',marginBottom:16}}>🎯 Family Goals</h2>
+            {sharedGoals.map(g=>(
+              <div key={g.id} className="card" style={{padding:16,marginBottom:12}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
+                  <div style={{fontWeight:800,color:'#1e293b',fontSize:'0.95rem'}}>{g.name}</div>
+                  <button onClick={()=>setSharedGoals(sharedGoals.filter(x=>x.id!==g.id))} className="btn" style={{color:'#ef4444',background:'rgba(239,68,68,0.1)',borderRadius:7,padding:'3px 8px',fontSize:'0.75rem'}}>✕</button>
+                </div>
+                <div style={{display:'flex',justifyContent:'space-between',fontSize:'0.82rem',color:'#64748b',marginBottom:8}}><span>Saved: <strong style={{color:'#6366f1'}}>${g.saved}</strong></span><span>Goal: <strong>${g.target}</strong></span></div>
+                <div style={{background:'#f1f5f9',borderRadius:20,height:10,marginBottom:10}}><div style={{background:'linear-gradient(90deg,#667eea,#764ba2)',borderRadius:20,height:10,width:`${Math.min((g.saved/g.target)*100,100)}%`,transition:'width 0.5s'}}/></div>
+                <div style={{display:'flex',gap:8}}>
+                  <button onClick={()=>setSharedGoals(sharedGoals.map(x=>x.id===g.id?{...x,saved:+(x.saved+10).toFixed(2)}:x))} className="btn" style={{flex:1,padding:'8px',borderRadius:10,background:'#d1fae5',color:'#065f46',fontWeight:700,fontSize:'0.82rem'}}>+ $10</button>
+                  <button onClick={()=>setSharedGoals(sharedGoals.map(x=>x.id===g.id?{...x,saved:+(x.saved+50).toFixed(2)}:x))} className="btn" style={{flex:1,padding:'8px',borderRadius:10,background:'#ddd6fe',color:'#5b21b6',fontWeight:700,fontSize:'0.82rem'}}>+ $50</button>
+                </div>
+              </div>
+            ))}
+            <div className="card" style={{padding:16}}>
+              <div style={{fontWeight:700,color:'#1e293b',marginBottom:10}}>+ Add Goal</div>
+              <input value={newGoal.name} onChange={e=>setNewGoal(g=>({...g,name:e.target.value}))} placeholder="Goal name" className="input-field" style={{marginBottom:8}}/>
+              <div style={{display:'flex',gap:8}}>
+                <input value={newGoal.target} onChange={e=>setNewGoal(g=>({...g,target:e.target.value}))} type="number" placeholder="Target $" className="input-field"/>
+                <button onClick={()=>{if(newGoal.name&&newGoal.target){setSharedGoals([...sharedGoals,{id:Date.now(),name:newGoal.name,target:+newGoal.target,saved:0}]);setNewGoal({name:'',target:''});}}} className="btn" style={{padding:'11px 16px',borderRadius:10,background:roleColor,color:'#fff',fontWeight:700}}>Add</button>
+              </div>
+            </div>
+          </div>
+        )}
+        {tab==='groceries' && (
+          <div style={{animation:'fadeUp 0.4s ease'}}>
+            <h2 style={{fontWeight:800,color:'#1e293b',marginBottom:16}}>🛒 Shared Shopping List</h2>
+            <div style={{display:'flex',gap:8,marginBottom:14}}>
+              <input value={newGrocery} onChange={e=>setNewGrocery(e.target.value)} onKeyDown={e=>e.key==='Enter'&&newGrocery.trim()&&(setSharedGroceries([...sharedGroceries,{id:Date.now(),text:newGrocery,done:false,by:username}]),setNewGrocery(''))} placeholder="Add item..." className="input-field"/>
+              <button onClick={()=>{if(newGrocery.trim()){setSharedGroceries([...sharedGroceries,{id:Date.now(),text:newGrocery,done:false,by:username}]);setNewGrocery('');}}} className="btn" style={{padding:'11px 16px',borderRadius:10,background:'#10b981',color:'#fff',fontWeight:700}}>+</button>
+            </div>
+            {sharedGroceries.map(g=>(
+              <div key={g.id} style={{background:'#fff',borderRadius:12,padding:'12px 14px',display:'flex',alignItems:'center',gap:12,marginBottom:8,boxShadow:'0 1px 4px rgba(0,0,0,0.05)'}}>
+                <button onClick={()=>setSharedGroceries(sharedGroceries.map(x=>x.id===g.id?{...x,done:!x.done}:x))} className="btn" style={{width:24,height:24,borderRadius:7,background:g.done?'#10b981':'#f1f5f9',border:`2px solid ${g.done?'#10b981':'#e2e8f0'}`,color:'#fff',fontWeight:900,fontSize:'0.75rem'}}>{g.done?'✓':''}</button>
+                <div style={{flex:1}}><div style={{fontWeight:600,fontSize:'0.9rem',color:g.done?'#94a3b8':'#1e293b',textDecoration:g.done?'line-through':'none'}}>{g.text}</div><div style={{fontSize:'0.72rem',color:'#94a3b8'}}>Added by {g.by}</div></div>
+                <button onClick={()=>setSharedGroceries(sharedGroceries.filter(x=>x.id!==g.id))} className="btn" style={{color:'#ef4444',background:'rgba(239,68,68,0.1)',borderRadius:7,padding:'3px 8px',fontSize:'0.78rem'}}>✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+        {tab==='calendar' && (
+          <div style={{animation:'fadeUp 0.4s ease'}}>
+            <h2 style={{fontWeight:800,color:'#1e293b',marginBottom:16}}>📅 Family Calendar</h2>
+            {calendar.map(e=>(
+              <div key={e.id} style={{background:'#fff',borderRadius:14,padding:'12px 16px',display:'flex',alignItems:'center',gap:14,marginBottom:8,boxShadow:'0 2px 8px rgba(0,0,0,0.05)',borderLeft:`4px solid ${e.type==='school'?'#f5576c':e.type==='adult'?'#3b82f6':'#10b981'}`}}>
+                <div style={{flex:1}}><div style={{fontWeight:700,color:'#1e293b',fontSize:'0.9rem'}}>{e.title}</div><div style={{fontSize:'0.75rem',color:'#94a3b8'}}>{e.date} · <span style={{color:e.type==='school'?'#f5576c':e.type==='adult'?'#3b82f6':'#10b981',fontWeight:700,textTransform:'uppercase'}}>{e.type}</span></div></div>
+                <button onClick={()=>setCalendar(calendar.filter(x=>x.id!==e.id))} className="btn" style={{color:'#ef4444',background:'rgba(239,68,68,0.1)',borderRadius:7,padding:'3px 8px',fontSize:'0.78rem'}}>✕</button>
+              </div>
+            ))}
+            <div className="card" style={{padding:16}}>
+              <div style={{fontWeight:700,color:'#1e293b',marginBottom:10}}>+ Add Event</div>
+              <input value={newEvent.title} onChange={e=>setNewEvent(v=>({...v,title:e.target.value}))} placeholder="Event name" className="input-field" style={{marginBottom:8}}/>
+              <div style={{display:'flex',gap:8,marginBottom:8}}>
+                <input value={newEvent.date} onChange={e=>setNewEvent(v=>({...v,date:e.target.value}))} placeholder="Date (e.g. Jun 20)" className="input-field"/>
+                <select value={newEvent.type} onChange={e=>setNewEvent(v=>({...v,type:e.target.value}))} className="input-field" style={{flex:'0 0 auto',width:100}}>
+                  <option value="school">School</option><option value="adult">Adult</option><option value="family">Family</option>
+                </select>
+              </div>
+              <button onClick={()=>{if(newEvent.title&&newEvent.date){setCalendar([...calendar,{id:Date.now(),...newEvent}]);setNewEvent({title:'',date:'',type:'school'});}}} className="btn" style={{width:'100%',padding:'11px',borderRadius:10,background:roleColor,color:'#fff',fontWeight:700}}>Add Event</button>
+            </div>
+          </div>
+        )}
+        {tab==='messages' && (
+          <div style={{animation:'fadeUp 0.4s ease'}}>
+            <h2 style={{fontWeight:800,color:'#1e293b',marginBottom:12}}>💬 Family Messages</h2>
+            <MessagingTab username={username} role={userRole} accentColor={roleColor} bubbleGradient={userRole==='kid'?'linear-gradient(135deg,#f093fb,#f5576c)':'linear-gradient(135deg,#4facfe,#00f2fe)'} familyId={familyId}/>
+          </div>
+        )}
+        {tab==='ai' && (
+          <div style={{animation:'fadeUp 0.4s ease'}}>
+            <h2 style={{fontWeight:800,color:'#1e293b',marginBottom:6}}>🤖 Family AI Helper</h2>
+            <p style={{color:'#64748b',fontSize:'0.85rem',marginBottom:16}}>{userRole==='kid'?'Ask me anything — I explain things in a fun, easy way!':'Ask anything — I help the whole family.'}</p>
+            <AIBox systemPrompt={userRole==='kid'?"You are a helpful family assistant for a child. Be warm, encouraging, and use simple language with emojis.":"You are a helpful family assistant. Help with family planning, budgeting, parenting tips, scheduling, and household management."} placeholder={userRole==='kid'?"Ask me anything!":"How can I help your family?"} color={roleColor}/>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── ROOT ──────────────────────────────────────────────────────────────────────
+function App() {
+  const [screen, setScreen] = useState('auth');
+  const [username, setUsername] = useState('');
+  const [userRole, setUserRole] = useState('adult');
+  const [userData, setUserData] = useState(null);
+  const [mode, setMode] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [familyId, setFamilyId] = useState(null);
+  const [familyMembers, setFamilyMembers] = useState([]);
+
+  useEffect(()=>{
+    const session = LS.getSession();
+    if (session) {
+      const restore = async () => {
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            const user = await fbGetUser(session.username);
+            if (user) {
+              setUsername(session.username);
+              setUserRole(user.role);
+              setUserData(user.appData || defaultData(user.role));
+              setFamilyId(user.familyId || null);
+              setFamilyMembers(user.familyMembers || []);
+              setScreen('mode');
+            } else { LS.clearSession(); }
+            setLoading(false);
+            return;
+          } catch (e) {
+            if (attempt < 3) await new Promise(r => setTimeout(r, 1000 * attempt));
+            else { LS.clearSession(); setLoading(false); }
+          }
+        }
+      };
+      restore();
+    } else setLoading(false);
+  },[]);
+
+  const handleLogin = (uname, role, data, fid, fmembers) => {
+    setUsername(uname); setUserRole(role); setUserData(data);
+    setFamilyId(fid || null); setFamilyMembers(fmembers || []);
+    setScreen('mode');
+  };
+  const handleLogout = () => { LS.clearSession(); setScreen('auth'); setMode(null); setUsername(''); setUserData(null); setFamilyId(null); setFamilyMembers([]); };
+  const handleSave = async (newData) => {
+    setUserData(newData);
+    const user = await fbGetUser(username);
+    if (user) await fbSaveUser(username, { ...user, appData: newData });
+  };
+  const handleFamilyDone = async (fid, fmembers) => {
+    setFamilyId(fid); setFamilyMembers(fmembers || []);
+    const user = await fbGetUser(username);
+    if (user) await fbSaveUser(username, { ...user, familyId: fid, familyMembers: fmembers || [] });
+    setScreen('mode');
+  };
+
+  if (loading) return (
+    <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#0f0c29,#302b63)',display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:16}}>
+      <div style={{fontSize:'3rem',animation:'float 2s ease-in-out infinite'}}>🏠</div>
+      <div style={{color:'#a5b4fc',fontWeight:700,fontSize:'1.1rem'}}>Loading FamilyHub...</div>
+      <div style={{color:'rgba(255,255,255,0.35)',fontSize:'0.8rem'}}>Connecting to cloud ☁️</div>
+      <span className="spinner" style={{borderTopColor:'#6366f1',borderColor:'rgba(99,102,241,0.3)',width:28,height:28}}/>
+    </div>
+  );
+
+  if (screen==='auth') return <AuthScreen onLogin={handleLogin}/>;
+  if (screen==='family') return <FamilySetup username={username} currentFamilyId={familyId} currentMembers={familyMembers} onDone={handleFamilyDone}/>;
+  if (screen==='mode') return <ModeSelector username={username} userRole={userRole} familyId={familyId} onSelect={m=>{setMode(m);setScreen('app');}} onLogout={handleLogout} onFamilySetup={()=>setScreen('family')}/>;
+  if (screen==='app' && userData) {
+    const p = { username, data:userData, onSave:handleSave, onBack:()=>setScreen('mode'), onLogout:handleLogout, familyId, familyMembers };
+    if (mode==='kid') return <KidMode {...p}/>;
+    if (mode==='adult') return <AdultMode {...p}/>;
+    if (mode==='combo') return <ComboMode {...p} userRole={userRole}/>;
+  }
+  return null;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
