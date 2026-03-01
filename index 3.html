@@ -1,0 +1,1206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>FamilyHub</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, doc, setDoc, getDoc, updateDoc, arrayUnion } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+    const firebaseConfig = {
+      apiKey: "AIzaSyDXG-ZsLjcwIsniazjEZRf2vJzYuFvc_OM",
+      authDomain: "familyhub-296ee.firebaseapp.com",
+      projectId: "familyhub-296ee",
+      storageBucket: "familyhub-296ee.firebasestorage.app",
+      messagingSenderId: "273649191928",
+      appId: "1:273649191928:web:d16f133f230464566b240d"
+    };
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    window.FB = { db, collection, addDoc, onSnapshot, query, orderBy, doc, setDoc, getDoc, updateDoc, arrayUnion };
+    window.firebaseReady = true;
+    window.dispatchEvent(new Event('firebaseReady'));
+  </script>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Sora:wght@300;400;600;700;800&display=swap" rel="stylesheet"/>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:'Sora',sans-serif;overflow-x:hidden;}
+    ::-webkit-scrollbar{width:4px;}
+    ::-webkit-scrollbar-thumb{background:rgba(0,0,0,0.2);border-radius:2px;}
+    input,select,textarea,button{font-family:'Sora',sans-serif;}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+    @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+    @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+    @keyframes slideIn{from{transform:translateX(30px);opacity:0}to{transform:translateX(0);opacity:1}}
+    @keyframes pop{0%{transform:scale(0.8);opacity:0}60%{transform:scale(1.1)}100%{transform:scale(1);opacity:1}}
+    @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+    .btn{border:none;cursor:pointer;transition:all 0.2s;outline:none;}
+    .btn:hover{filter:brightness(1.08);transform:translateY(-1px);}
+    .btn:active{transform:scale(0.97);}
+    .card{background:#fff;border-radius:16px;box-shadow:0 2px 16px rgba(0,0,0,0.07);}
+    .inp{width:100%;padding:11px 14px;border-radius:10px;border:1.5px solid #e2e8f0;outline:none;font-size:0.93rem;transition:border 0.2s;background:#fff;}
+    .inp:focus{border-color:#6366f1;}
+    .spinner{width:18px;height:18px;border:2.5px solid rgba(255,255,255,0.3);border-top:2.5px solid #fff;border-radius:50%;animation:spin 0.8s linear infinite;display:inline-block;vertical-align:middle;}
+    .badge{display:inline-flex;align-items:center;padding:3px 10px;border-radius:20px;font-size:0.72rem;font-weight:700;}
+    .dark{background:#0f172a!important;color:#e2e8f0!important;}
+    .dark .card{background:#1e293b!important;box-shadow:0 2px 16px rgba(0,0,0,0.3)!important;}
+    .dark .inp{background:#1e293b!important;border-color:#334155!important;color:#e2e8f0!important;}
+    .dark-bg{background:#0f172a;}
+    .dark-card{background:#1e293b;border-color:#334155;}
+    .dark-text{color:#e2e8f0;}
+    .dark-sub{color:#94a3b8;}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+// ── Storage ───────────────────────────────────────────────────────────────────
+const LS = {
+  get: (k,d=null)=>{ try{const v=localStorage.getItem(k);return v?JSON.parse(v):d;}catch{return d;}},
+  set: (k,v)=>{ try{localStorage.setItem(k,JSON.stringify(v));}catch{}},
+  getSession:()=>LS.get('fh_session',null),
+  saveSession:(s)=>LS.set('fh_session',s),
+  clearSession:()=>localStorage.removeItem('fh_session'),
+  getDark:()=>LS.get('fh_dark',false),
+  setDark:(v)=>LS.set('fh_dark',v),
+};
+
+// ── Firebase ──────────────────────────────────────────────────────────────────
+const waitFB = ()=>new Promise((res,rej)=>{
+  if(window.firebaseReady){res();return;}
+  const t=setTimeout(()=>rej(new Error('timeout')),10000);
+  window.addEventListener('firebaseReady',()=>{clearTimeout(t);res()},{once:true});
+});
+const retry=async(fn,n=3,d=800)=>{
+  for(let i=0;i<n;i++){try{return await fn();}catch(e){if(i<n-1)await new Promise(r=>setTimeout(r,d*(i+1)));else throw e;}}
+};
+const fbSet=async(path,data)=>retry(async()=>{await waitFB();const{db,doc,setDoc}=window.FB;await setDoc(doc(db,...path),data);});
+const fbGet=async(path)=>retry(async()=>{await waitFB();const{db,doc,getDoc}=window.FB;const s=await getDoc(doc(db,...path));return s.exists()?s.data():null;});
+const fbAdd=async(path,data)=>retry(async()=>{await waitFB();const{db,collection,addDoc}=window.FB;await addDoc(collection(db,...path),{...data,ts:Date.now()});});
+const fbListen=(path,cb)=>{
+  waitFB().then(()=>{
+    const{db,collection,onSnapshot,query,orderBy}=window.FB;
+    const q=query(collection(db,...path),orderBy('ts','asc'));
+    return onSnapshot(q,snap=>cb(snap.docs.map(d=>({id:d.id,...d.data()}))));
+  });
+};
+const fbUpdate=async(path,data)=>retry(async()=>{await waitFB();const{db,doc,updateDoc}=window.FB;await updateDoc(doc(db,...path),data);});
+
+// ── AI ────────────────────────────────────────────────────────────────────────
+const askAI=async(prompt,system)=>{
+  try{
+    const r=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:prompt}],system})});
+    const d=await r.json();
+    return d.content?.map(b=>b.text||'').join('')||'Sorry, could not get an answer.';
+  }catch{return 'AI is unavailable right now.';}
+};
+
+// ── Default Data ──────────────────────────────────────────────────────────────
+const defData=(role)=>({
+  role,
+  homework:[{id:1,text:'Math worksheet',done:false,subject:'Math'},{id:2,text:'Read chapter 3',done:false,subject:'English'}],
+  backpack:[{id:1,text:'Folder',done:false},{id:2,text:'iPad charged',done:false},{id:3,text:'Water bottle',done:false}],
+  allowance:{earned:12.50,goal:20,goalName:'New game',history:[]},
+  streak:3,points:0,
+  badges:[],
+  budget:{income:3000,expenses:[{name:'Rent',amount:1200},{name:'Groceries',amount:300},{name:'Utilities',amount:150}]},
+  groceries:[{id:1,text:'Milk',done:false},{id:2,text:'Eggs',done:false}],
+  bills:[{id:1,name:'Electric',due:'Jun 15',amount:95,paid:false,recurring:true},{id:2,name:'Internet',due:'Jun 20',amount:60,paid:true,recurring:true}],
+  planner:[],
+  sharedTasks:[],
+  sharedGoals:[{id:1,name:'Family Vacation',target:1000,saved:340},{id:2,name:'New Bike for Sam',target:200,saved:80}],
+  sharedGroceries:[],
+  calendarEvents:[{id:1,title:'Science Fair',date:'Jun 10',type:'school'},{id:2,title:'Tax Deadline',date:'Jun 15',type:'adult'}],
+  approvalRequests:[],
+  screenTime:{limit:120,used:0,lastReset:new Date().toDateString()},
+  avatar:'😊',parentPin:null,
+});
+
+// ── Badges Definition ─────────────────────────────────────────────────────────
+const BADGES=[
+  {id:'first_hw',icon:'📚',name:'Homework Hero',desc:'Complete your first homework'},
+  {id:'streak3',icon:'🔥',name:'3-Day Streak',desc:'Study 3 days in a row'},
+  {id:'streak7',icon:'⚡',name:'Week Warrior',desc:'Study 7 days in a row'},
+  {id:'savings10',icon:'💰',name:'Saver',desc:'Save $10'},
+  {id:'savings_goal',icon:'🏆',name:'Goal Getter',desc:'Reach a savings goal'},
+  {id:'all_backpack',icon:'🎒',name:'Prepared',desc:'Check all backpack items'},
+  {id:'points50',icon:'⭐',name:'Star Student',desc:'Earn 50 points'},
+  {id:'points100',icon:'🌟',name:'Superstar',desc:'Earn 100 points'},
+  {id:'family_chat',icon:'💬',name:'Family Connector',desc:'Send your first family message'},
+];
+
+// ── Themes ────────────────────────────────────────────────────────────────────
+const useTheme=(dark)=>({
+  bg: dark?'#0f172a':'#f8fafc',
+  card: dark?'#1e293b':'#ffffff',
+  text: dark?'#e2e8f0':'#1e293b',
+  sub: dark?'#94a3b8':'#64748b',
+  border: dark?'#334155':'#e2e8f0',
+  input: dark?'#1e293b':'#ffffff',
+  inputBorder: dark?'#334155':'#e2e8f0',
+});
+
+// ── Shared UI ─────────────────────────────────────────────────────────────────
+function Avatar({emoji='😊',size=44,onClick}){
+  return <div onClick={onClick} style={{width:size,height:size,borderRadius:'50%',background:'linear-gradient(135deg,#667eea,#764ba2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:size*0.5,cursor:onClick?'pointer':'default',flexShrink:0}}>{emoji}</div>;
+}
+function ProgressBar({value,max,color='#6366f1',height=8}){
+  const pct=Math.min(100,Math.max(0,(value/max)*100));
+  return <div style={{background:'#e5e7eb',borderRadius:99,height,overflow:'hidden'}}><div style={{width:`${pct}%`,background:color,height:'100%',borderRadius:99,transition:'width 0.5s ease'}}/></div>;
+}
+function AIBox({system,placeholder,color,dark}){
+  const [q,setQ]=useState('');const[ans,setAns]=useState('');const[load,setLoad]=useState(false);
+  const T=useTheme(dark);
+  const ask=async()=>{if(!q.trim()||load)return;setLoad(true);setAns('');const r=await askAI(q,system);setAns(r);setLoad(false);};
+  return(
+    <div style={{background:T.card,borderRadius:16,padding:18,boxShadow:'0 2px 16px rgba(0,0,0,0.07)'}}>
+      <div style={{display:'flex',gap:10,marginBottom:ans||load?14:0}}>
+        <input value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>e.key==='Enter'&&ask()} placeholder={placeholder||'Ask anything...'} className="inp" style={{flex:1,background:T.input,borderColor:T.inputBorder,color:T.text}}/>
+        <button onClick={ask} className="btn" style={{padding:'11px 20px',borderRadius:10,background:color||'#6366f1',color:'#fff',fontWeight:700,whiteSpace:'nowrap'}}>{load?<span className="spinner"/>:'Get Answer'}</button>
+      </div>
+      {load&&<div style={{textAlign:'center',padding:'20px 0',color:T.sub,animation:'pulse 1.5s infinite'}}>✨ Thinking...</div>}
+      {ans&&!load&&<div style={{background:dark?'#0f172a':'#f8faff',borderRadius:12,padding:14,fontSize:'0.88rem',lineHeight:1.7,color:T.text,borderLeft:`3px solid ${color}`,animation:'slideIn 0.3s ease'}}>{ans}</div>}
+    </div>
+  );
+}
+function StudyTimer({dark}){
+  const[mins,setMins]=useState(25);const[secs,setSecs]=useState(0);const[run,setRun]=useState(false);const[done,setDone]=useState(false);
+  const ref=useRef(null);
+  useEffect(()=>{
+    if(run){ref.current=setInterval(()=>setSecs(s=>{if(s===0){setMins(m=>{if(m===0){setRun(false);setDone(true);clearInterval(ref.current);return 0;}return m-1;});return 59;}return s-1;}),1000);}
+    else clearInterval(ref.current);
+    return()=>clearInterval(ref.current);
+  },[run]);
+  const reset=()=>{setMins(25);setSecs(0);setRun(false);setDone(false);};
+  const pct=((25*60-(mins*60+secs))/(25*60))*100;
+  return(
+    <div style={{background:'linear-gradient(135deg,#667eea,#764ba2)',borderRadius:16,padding:20,color:'#fff',textAlign:'center'}}>
+      <div style={{fontSize:'0.85rem',fontWeight:700,opacity:0.8,marginBottom:12}}>⏱ STUDY TIMER</div>
+      <div style={{position:'relative',width:100,height:100,margin:'0 auto 14px'}}>
+        <svg width="100" height="100" style={{transform:'rotate(-90deg)'}}>
+          <circle cx="50" cy="50" r="44" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="8"/>
+          <circle cx="50" cy="50" r="44" fill="none" stroke="#fff" strokeWidth="8" strokeDasharray={`${2*Math.PI*44}`} strokeDashoffset={`${2*Math.PI*44*(1-pct/100)}`} style={{transition:'stroke-dashoffset 1s linear'}}/>
+        </svg>
+        <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:'1.4rem',fontWeight:800}}>{String(mins).padStart(2,'0')}:{String(secs).padStart(2,'0')}</div>
+      </div>
+      {done&&<div style={{fontSize:'1.5rem',marginBottom:8,animation:'pop 0.5s ease'}}>🎉 Great work! +10 pts</div>}
+      <div style={{display:'flex',gap:8,justifyContent:'center'}}>
+        <button onClick={()=>setRun(r=>!r)} className="btn" style={{padding:'8px 20px',borderRadius:10,background:'rgba(255,255,255,0.2)',color:'#fff',fontWeight:700}}>{run?'Pause':'Start'}</button>
+        <button onClick={reset} className="btn" style={{padding:'8px 16px',borderRadius:10,background:'rgba(255,255,255,0.1)',color:'#fff',fontWeight:700}}>Reset</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Messaging ─────────────────────────────────────────────────────────────────
+function MessagingTab({username,role,accentColor,bubbleGrad,familyId,dark,onFirstMessage,hasMessaged}){
+  const[msgs,setMsgs]=useState([]);const[input,setInput]=useState('');const[sending,setSending]=useState(false);
+  const[img,setImg]=useState(null);const[imgPreview,setImgPreview]=useState(null);
+  const bottomRef=useRef(null);const fileRef=useRef(null);
+  const T=useTheme(dark);
+  useEffect(()=>{if(familyId)fbListen(['families',familyId,'messages'],setMsgs);},[familyId]);
+  useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:'smooth'});},[msgs]);
+  const handleImg=e=>{
+    const f=e.target.files[0];if(!f)return;
+    const reader=new FileReader();
+    reader.onload=ev=>{setImg(ev.target.result);setImgPreview(ev.target.result);};
+    reader.readAsDataURL(f);
+  };
+  const send=async()=>{
+    if((!input.trim()&&!img)||sending||!familyId)return;
+    setSending(true);
+    if(!hasMessaged)onFirstMessage();
+    await fbAdd(['families',familyId,'messages'],{sender:username,role,text:input,image:img||null,time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})});
+    setInput('');setImg(null);setImgPreview(null);setSending(false);
+  };
+  if(!familyId)return <div style={{textAlign:'center',padding:'40px 20px',color:T.sub,background:T.card,borderRadius:16}}><div style={{fontSize:'3rem',marginBottom:8}}>👨‍👩‍👧</div><div style={{fontWeight:700,color:T.text,marginBottom:6}}>No family group yet</div><div style={{fontSize:'0.85rem'}}>Go back and tap "Setup Family" to connect with your family.</div></div>;
+  return(
+    <div style={{display:'flex',flexDirection:'column',height:'calc(100vh - 220px)'}}>
+      <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:8,paddingBottom:8,background:T.card,borderRadius:16,padding:14,minHeight:0}}>
+        {msgs.length===0&&<div style={{textAlign:'center',padding:'40px 20px',color:T.sub}}><div style={{fontSize:'3rem',marginBottom:8}}>💬</div><div style={{fontWeight:700,color:T.text}}>No messages yet!</div></div>}
+        {msgs.map(m=>{
+          const isMe=m.sender===username;
+          const avatarBg=m.role==='kid'?'linear-gradient(135deg,#f093fb,#f5576c)':'linear-gradient(135deg,#4facfe,#00f2fe)';
+          return(
+            <div key={m.id} style={{display:'flex',justifyContent:isMe?'flex-end':'flex-start',gap:8,alignItems:'flex-end'}}>
+              {!isMe&&<div style={{width:30,height:30,borderRadius:'50%',background:avatarBg,display:'flex',alignItems:'center',justifyContent:'center',fontSize:'0.9rem',flexShrink:0}}>{m.role==='kid'?'🧒':'🧑'}</div>}
+              <div style={{maxWidth:'75%'}}>
+                {!isMe&&<div style={{fontSize:'0.7rem',color:T.sub,marginBottom:3,fontWeight:700}}>{m.sender}</div>}
+                {m.image&&<img src={m.image} style={{maxWidth:'100%',borderRadius:12,marginBottom:4,display:'block'}} alt="shared"/>}
+                {m.text&&<div style={{padding:'10px 14px',borderRadius:isMe?'18px 18px 4px 18px':'18px 18px 18px 4px',background:isMe?bubbleGrad:dark?'#334155':'#f1f5f9',color:isMe?'#fff':T.text,fontSize:'0.9rem',lineHeight:1.5}}>{m.text}</div>}
+                <div style={{fontSize:'0.68rem',color:T.sub,marginTop:3,textAlign:isMe?'right':'left'}}>{m.time}</div>
+              </div>
+              {isMe&&<div style={{width:30,height:30,borderRadius:'50%',background:bubbleGrad,display:'flex',alignItems:'center',justifyContent:'center',fontSize:'0.9rem',flexShrink:0}}>{role==='kid'?'🧒':'🧑'}</div>}
+            </div>
+          );
+        })}
+        <div ref={bottomRef}/>
+      </div>
+      {imgPreview&&<div style={{padding:'8px 0',display:'flex',alignItems:'center',gap:8}}><img src={imgPreview} style={{height:50,borderRadius:8}} alt="preview"/><button onClick={()=>{setImg(null);setImgPreview(null);}} className="btn" style={{color:'#ef4444',fontSize:'0.8rem',background:'rgba(239,68,68,0.1)',borderRadius:8,padding:'4px 8px'}}>✕</button></div>}
+      <div style={{display:'flex',gap:8,paddingTop:10,borderTop:`1px solid ${T.border}`}}>
+        <input type="file" accept="image/*" ref={fileRef} onChange={handleImg} style={{display:'none'}}/>
+        <button onClick={()=>fileRef.current.click()} className="btn" style={{padding:'11px 12px',borderRadius:10,background:dark?'#334155':'#f1f5f9',color:T.sub,fontSize:'1rem'}}>📷</button>
+        <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&send()} placeholder="Message your family..." className="inp" style={{flex:1,background:T.input,borderColor:T.inputBorder,color:T.text}}/>
+        <button onClick={send} className="btn" style={{padding:'11px 18px',borderRadius:10,background:bubbleGrad,color:'#fff',fontWeight:700}}>{sending?<span className="spinner"/>:'→'}</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Family Setup ──────────────────────────────────────────────────────────────
+function FamilySetup({username,currentFamilyId,currentMembers,onDone}){
+  const[mode,setMode]=useState('choose');const[name,setName]=useState('');const[code,setCode]=useState('');
+  const[load,setLoad]=useState(false);const[err,setErr]=useState('');const[ok,setOk]=useState('');
+  const create=async()=>{
+    if(!name.trim()){setErr('Enter a family name.');return;}
+    setLoad(true);setErr('');
+    const id=name.trim().toLowerCase().replace(/[^a-z0-9]/g,'-')+'-'+Math.random().toString(36).slice(2,7);
+    try{
+      await fbSet(['families',id],{createdBy:username,members:[username],createdAt:Date.now(),name:name.trim()});
+      setOk(`Family created! Your code: ${id}`);
+      setTimeout(()=>onDone(id,[username]),2000);
+    }catch{setErr('Could not create. Try again.');}
+    setLoad(false);
+  };
+  const join=async()=>{
+    if(!code.trim()){setErr('Enter a family code.');return;}
+    setLoad(true);setErr('');
+    try{
+      const fam=await fbGet(['families',code.trim().toLowerCase()]);
+      if(!fam){setErr('Family group not found.');setLoad(false);return;}
+      if(fam.members.includes(username)){setErr('You are already in this family.');setLoad(false);return;}
+      const newMembers=[...fam.members,username];
+      await fbSet(['families',code.trim().toLowerCase()],{...fam,members:newMembers});
+      setOk('Joined! 🎉');
+      setTimeout(()=>onDone(code.trim().toLowerCase(),newMembers),1500);
+    }catch{setErr('Could not join. Check the code.');}
+    setLoad(false);
+  };
+  return(
+    <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#0f0c29,#302b63)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+      <div style={{width:'100%',maxWidth:420,animation:'fadeUp 0.5s ease'}}>
+        <div style={{textAlign:'center',marginBottom:24}}>
+          <div style={{fontSize:'3rem',marginBottom:8}}>👨‍👩‍👧</div>
+          <h1 style={{color:'#fff',fontSize:'1.8rem',fontWeight:800}}>Family Group</h1>
+          <p style={{color:'rgba(255,255,255,0.5)',fontSize:'0.85rem',marginTop:4}}>Connect so only your family sees your messages</p>
+        </div>
+        {currentFamilyId&&<div style={{background:'rgba(67,233,123,0.15)',border:'1px solid rgba(67,233,123,0.4)',borderRadius:16,padding:14,marginBottom:16,textAlign:'center'}}>
+          <div style={{color:'#43e97b',fontWeight:700,marginBottom:4}}>✅ You're in a family!</div>
+          <div style={{color:'#fff',fontWeight:800,fontSize:'0.9rem',background:'rgba(0,0,0,0.3)',borderRadius:8,padding:'5px 12px',display:'inline-block'}}>{currentFamilyId}</div>
+          <div style={{color:'rgba(255,255,255,0.5)',fontSize:'0.75rem',marginTop:6}}>Members: {currentMembers?.join(', ')}</div>
+        </div>}
+        <div style={{background:'rgba(255,255,255,0.07)',borderRadius:20,padding:24,border:'1px solid rgba(255,255,255,0.1)'}}>
+          {mode==='choose'&&<div style={{display:'flex',flexDirection:'column',gap:12}}>
+            <button onClick={()=>setMode('create')} className="btn" style={{padding:'14px',borderRadius:14,background:'linear-gradient(135deg,#43e97b,#38f9d7)',color:'#fff',fontWeight:800}}>➕ Create New Family Group</button>
+            <button onClick={()=>setMode('join')} className="btn" style={{padding:'14px',borderRadius:14,background:'linear-gradient(135deg,#4facfe,#00f2fe)',color:'#fff',fontWeight:800}}>🔗 Join Existing Family</button>
+            <button onClick={()=>onDone(currentFamilyId,currentMembers)} className="btn" style={{padding:'11px',borderRadius:14,background:'rgba(255,255,255,0.08)',color:'rgba(255,255,255,0.5)',fontWeight:600}}>Cancel</button>
+          </div>}
+          {mode==='create'&&<div>
+            <div style={{color:'#fff',fontWeight:700,marginBottom:12}}>➕ Create Family Group</div>
+            <input value={name} onChange={e=>setName(e.target.value)} placeholder="Family name (e.g. The Smiths)" className="inp" style={{background:'rgba(255,255,255,0.08)',border:'1.5px solid rgba(255,255,255,0.15)',color:'#fff',marginBottom:10}} onKeyDown={e=>e.key==='Enter'&&create()}/>
+            {err&&<div style={{color:'#fca5a5',fontSize:'0.82rem',marginBottom:8}}>⚠️ {err}</div>}
+            {ok&&<div style={{color:'#86efac',fontSize:'0.82rem',marginBottom:8}}>✅ {ok}</div>}
+            <div style={{display:'flex',gap:8}}>
+              <button onClick={()=>{setMode('choose');setErr('');}} className="btn" style={{flex:1,padding:'11px',borderRadius:12,background:'rgba(255,255,255,0.08)',color:'rgba(255,255,255,0.5)',fontWeight:600}}>Back</button>
+              <button onClick={create} disabled={load} className="btn" style={{flex:2,padding:'11px',borderRadius:12,background:'linear-gradient(135deg,#43e97b,#38f9d7)',color:'#fff',fontWeight:700}}>{load?<span className="spinner"/>:'Create'}</button>
+            </div>
+          </div>}
+          {mode==='join'&&<div>
+            <div style={{color:'#fff',fontWeight:700,marginBottom:12}}>🔗 Join Family Group</div>
+            <div style={{color:'rgba(255,255,255,0.5)',fontSize:'0.82rem',marginBottom:8}}>Ask a family member for their Family Code.</div>
+            <input value={code} onChange={e=>setCode(e.target.value)} placeholder="Paste family code..." className="inp" style={{background:'rgba(255,255,255,0.08)',border:'1.5px solid rgba(255,255,255,0.15)',color:'#fff',marginBottom:10}} onKeyDown={e=>e.key==='Enter'&&join()}/>
+            {err&&<div style={{color:'#fca5a5',fontSize:'0.82rem',marginBottom:8}}>⚠️ {err}</div>}
+            {ok&&<div style={{color:'#86efac',fontSize:'0.82rem',marginBottom:8}}>✅ {ok}</div>}
+            <div style={{display:'flex',gap:8}}>
+              <button onClick={()=>{setMode('choose');setErr('');}} className="btn" style={{flex:1,padding:'11px',borderRadius:12,background:'rgba(255,255,255,0.08)',color:'rgba(255,255,255,0.5)',fontWeight:600}}>Back</button>
+              <button onClick={join} disabled={load} className="btn" style={{flex:2,padding:'11px',borderRadius:12,background:'linear-gradient(135deg,#4facfe,#00f2fe)',color:'#fff',fontWeight:700}}>{load?<span className="spinner"/>:'Join'}</button>
+            </div>
+          </div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── PIN Lock ──────────────────────────────────────────────────────────────────
+function PinScreen({onSuccess,title='Enter Parent PIN',correctPin}){
+  const[pin,setPin]=useState('');const[err,setErr]=useState('');
+  const check=()=>{
+    if(pin===correctPin){onSuccess();}
+    else{setErr('Wrong PIN. Try again.');setPin('');}
+  };
+  return(
+    <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#0f0c29,#302b63)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+      <div style={{background:'rgba(255,255,255,0.07)',borderRadius:24,padding:32,maxWidth:340,width:'100%',textAlign:'center',border:'1px solid rgba(255,255,255,0.1)'}}>
+        <div style={{fontSize:'3rem',marginBottom:12}}>🔒</div>
+        <div style={{color:'#fff',fontWeight:800,fontSize:'1.2rem',marginBottom:6}}>{title}</div>
+        <div style={{color:'rgba(255,255,255,0.5)',fontSize:'0.85rem',marginBottom:20}}>This area requires a parent PIN</div>
+        <input type="password" maxLength={6} value={pin} onChange={e=>setPin(e.target.value)} onKeyDown={e=>e.key==='Enter'&&check()}
+          placeholder="Enter PIN" className="inp" style={{background:'rgba(255,255,255,0.1)',border:'1.5px solid rgba(255,255,255,0.2)',color:'#fff',textAlign:'center',letterSpacing:4,fontSize:'1.3rem',marginBottom:10}}/>
+        {err&&<div style={{color:'#fca5a5',fontSize:'0.82rem',marginBottom:10}}>⚠️ {err}</div>}
+        <button onClick={check} className="btn" style={{width:'100%',padding:'12px',borderRadius:12,background:'linear-gradient(135deg,#667eea,#764ba2)',color:'#fff',fontWeight:700}}>Unlock →</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+function AuthScreen({onLogin}){
+  const[isLogin,setIsLogin]=useState(true);const[un,setUn]=useState('');const[pw,setPw]=useState('');
+  const[conf,setConf]=useState('');const[role,setRole]=useState('adult');const[err,setErr]=useState('');const[load,setLoad]=useState(false);
+  const submit=async()=>{
+    setErr('');setLoad(true);
+    if(!un.trim()||!pw.trim()){setErr('Fill in all fields.');setLoad(false);return;}
+    try{
+      if(isLogin){
+        const user=await fbGet(['users',un]);
+        if(!user){setErr('Account not found. Please sign up.');setLoad(false);return;}
+        if(user.password!==pw){setErr('Incorrect password.');setLoad(false);return;}
+        LS.saveSession({username:un,role:user.role});
+        onLogin(un,user.role,user.appData||defData(user.role),user.familyId||null,user.familyMembers||[]);
+      }else{
+        if(pw!==conf){setErr("Passwords don't match.");setLoad(false);return;}
+        if(pw.length<4){setErr('Password must be 4+ characters.');setLoad(false);return;}
+        const existing=await fbGet(['users',un]);
+        if(existing){setErr('Username taken.');setLoad(false);return;}
+        const data=defData(role);
+        await fbSet(['users',un],{password:pw,role,appData:data,familyId:null,familyMembers:[]});
+        LS.saveSession({username:un,role});
+        onLogin(un,role,data,null,[]);
+      }
+    }catch(e){
+      setErr(e.message?.includes('timeout')?'Slow connection — try again.':'Something went wrong. Try again.');
+    }
+    setLoad(false);
+  };
+  return(
+    <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#0f0c29,#302b63,#24243e)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+      <div style={{width:'100%',maxWidth:420,animation:'fadeUp 0.6s ease'}}>
+        <div style={{textAlign:'center',marginBottom:28}}>
+          <div style={{fontSize:'3.5rem',marginBottom:8,animation:'float 3s ease-in-out infinite'}}>🏠</div>
+          <h1 style={{color:'#fff',fontSize:'2.2rem',fontWeight:800,letterSpacing:'-1px'}}>FamilyHub</h1>
+          <p style={{color:'rgba(255,255,255,0.4)',fontSize:'0.9rem',marginTop:4}}>Sign in from any device, anywhere ☁️</p>
+        </div>
+        <div style={{background:'rgba(255,255,255,0.07)',backdropFilter:'blur(20px)',borderRadius:24,padding:28,border:'1px solid rgba(255,255,255,0.1)'}}>
+          <div style={{display:'flex',background:'rgba(0,0,0,0.3)',borderRadius:12,padding:4,marginBottom:22}}>
+            {['Sign In','Sign Up'].map((t,i)=>(
+              <button key={t} onClick={()=>{setIsLogin(i===0);setErr('');}} className="btn" style={{flex:1,padding:'9px',borderRadius:10,fontSize:'0.85rem',fontWeight:700,background:(isLogin&&i===0)||(!isLogin&&i===1)?'rgba(255,255,255,0.15)':'transparent',color:(isLogin&&i===0)||(!isLogin&&i===1)?'#fff':'rgba(255,255,255,0.4)'}}>{t}</button>
+            ))}
+          </div>
+          <div style={{display:'flex',flexDirection:'column',gap:12}}>
+            <input className="inp" value={un} onChange={e=>setUn(e.target.value)} placeholder="Username" style={{background:'rgba(255,255,255,0.08)',border:'1.5px solid rgba(255,255,255,0.15)',color:'#fff'}} onKeyDown={e=>e.key==='Enter'&&submit()}/>
+            <input className="inp" type="password" value={pw} onChange={e=>setPw(e.target.value)} placeholder="Password" style={{background:'rgba(255,255,255,0.08)',border:'1.5px solid rgba(255,255,255,0.15)',color:'#fff'}} onKeyDown={e=>e.key==='Enter'&&submit()}/>
+            {!isLogin&&<>
+              <input className="inp" type="password" value={conf} onChange={e=>setConf(e.target.value)} placeholder="Confirm Password" style={{background:'rgba(255,255,255,0.08)',border:'1.5px solid rgba(255,255,255,0.15)',color:'#fff'}} onKeyDown={e=>e.key==='Enter'&&submit()}/>
+              <div>
+                <p style={{color:'rgba(255,255,255,0.5)',fontSize:'0.78rem',marginBottom:8,fontWeight:600}}>I AM A...</p>
+                <div style={{display:'flex',gap:10}}>
+                  {[['adult','🧑 Adult'],['kid','🧒 Kid']].map(([r,l])=>(
+                    <button key={r} onClick={()=>setRole(r)} className="btn" style={{flex:1,padding:'10px',borderRadius:12,fontSize:'0.85rem',fontWeight:700,background:role===r?(r==='kid'?'linear-gradient(135deg,#f093fb,#f5576c)':'linear-gradient(135deg,#4facfe,#00f2fe)'):'rgba(255,255,255,0.08)',color:'#fff',border:role===r?'none':'1.5px solid rgba(255,255,255,0.15)'}}>{l}</button>
+                  ))}
+                </div>
+              </div>
+            </>}
+            {err&&<div style={{background:'rgba(239,68,68,0.2)',border:'1px solid rgba(239,68,68,0.4)',borderRadius:10,padding:'10px 14px',color:'#fca5a5',fontSize:'0.85rem'}}>⚠️ {err}</div>}
+            <button onClick={submit} disabled={load} className="btn" style={{padding:'13px',borderRadius:12,fontWeight:800,fontSize:'1rem',background:'linear-gradient(135deg,#667eea,#764ba2)',color:'#fff',boxShadow:'0 8px 24px rgba(102,126,234,0.4)',marginTop:4,opacity:load?0.7:1}}>{load?<span className="spinner"/>:(isLogin?'Sign In →':'Create Account →')}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Mode Selector ─────────────────────────────────────────────────────────────
+function ModeSelector({username,userRole,onSelect,onLogout,onFamily,familyId,dark,onToggleDark}){
+  const T=useTheme(dark);
+  const modes=userRole==='kid'
+    ?[['kid','🧒','Kid Mode','Homework, badges & rewards','linear-gradient(135deg,#f093fb,#f5576c)'],
+      ['combo','🔄','Family Mode','Connect with your family','linear-gradient(135deg,#43e97b,#38f9d7)']]
+    :[['kid','🧒','Kid Mode','See what your kids are up to','linear-gradient(135deg,#f093fb,#f5576c)'],
+      ['adult','🧑','Adult Mode','Budget, bills & life tools','linear-gradient(135deg,#4facfe,#00f2fe)'],
+      ['combo','🔄','Family Mode','Shared tasks, goals & chat','linear-gradient(135deg,#43e97b,#38f9d7)']];
+  return(
+    <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#0f0c29,#302b63)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+      <div style={{width:'100%',maxWidth:560,animation:'fadeUp 0.5s ease'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:28}}>
+          <div>
+            <div style={{fontSize:'2rem',marginBottom:4}}>🏠</div>
+            <h1 style={{color:'#fff',fontSize:'1.8rem',fontWeight:800}}>FamilyHub</h1>
+            <p style={{color:'rgba(255,255,255,0.5)',fontSize:'0.85rem'}}>Welcome back, <strong style={{color:'rgba(255,255,255,0.85)'}}>{username}</strong>!</p>
+          </div>
+          <div style={{display:'flex',flexDirection:'column',gap:8,alignItems:'flex-end'}}>
+            <button onClick={onLogout} className="btn" style={{padding:'7px 14px',borderRadius:10,background:'rgba(255,255,255,0.08)',color:'rgba(255,255,255,0.6)',fontSize:'0.78rem',border:'1px solid rgba(255,255,255,0.1)'}}>Log Out</button>
+            <button onClick={onFamily} className="btn" style={{padding:'7px 12px',borderRadius:10,background:familyId?'rgba(67,233,123,0.2)':'rgba(251,191,36,0.2)',color:familyId?'#43e97b':'#fbbf24',fontSize:'0.75rem',border:`1px solid ${familyId?'rgba(67,233,123,0.4)':'rgba(251,191,36,0.4)'}`}}>{familyId?'👨‍👩‍👧 Family ✓':'👨‍👩‍👧 Setup Family'}</button>
+            <button onClick={onToggleDark} className="btn" style={{padding:'7px 12px',borderRadius:10,background:'rgba(255,255,255,0.08)',color:'rgba(255,255,255,0.6)',fontSize:'0.75rem',border:'1px solid rgba(255,255,255,0.1)'}}>{dark?'☀️ Light':'🌙 Dark'}</button>
+          </div>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:modes.length===2?'1fr 1fr':'1fr 1fr 1fr',gap:14}}>
+          {modes.map(([id,emoji,title,desc,bg])=>(
+            <button key={id} onClick={()=>onSelect(id)} className="btn" style={{padding:'22px 18px',borderRadius:20,background:bg,textAlign:'left',color:'#fff',boxShadow:'0 8px 24px rgba(0,0,0,0.3)'}}>
+              <div style={{fontSize:'2.2rem',marginBottom:10}}>{emoji}</div>
+              <div style={{fontWeight:800,fontSize:'1rem',marginBottom:5}}>{title}</div>
+              <div style={{fontSize:'0.75rem',opacity:0.85,lineHeight:1.4}}>{desc}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── KID MODE ──────────────────────────────────────────────────────────────────
+function KidMode({username,data,onSave,onBack,onLogout,familyId,dark,pinRequired,familyPin}){
+  const[tab,setTab]=useState('home');
+  const[hw,setHw]=useState(data.homework||[]);
+  const[bp,setBp]=useState(data.backpack||[]);
+  const[newHw,setNewHw]=useState('');const[newBp,setNewBp]=useState('');
+  const[allowance,setAllowance]=useState(data.allowance||{earned:0,goal:20,goalName:'My Goal',history:[]});
+  const[streak]=useState(data.streak||0);
+  const[points,setPoints]=useState(data.points||0);
+  const[badges,setBadges]=useState(data.badges||[]);
+  const[hasMessaged,setHasMessaged]=useState(false);
+  const[toast,setToast]=useState(null);
+  const[screenTime,setScreenTime]=useState(data.screenTime||{limit:120,used:0,lastReset:new Date().toDateString()});
+  const[pinUnlocked,setPinUnlocked]=useState(true); // Kids don't need PIN
+  const T=useTheme(dark);
+
+  useEffect(()=>{ onSave({...data,homework:hw,backpack:bp,allowance,points,badges,screenTime}); },[hw,bp,allowance,points,badges,screenTime]);
+
+  // Screen time tracker
+  useEffect(()=>{
+    const today=new Date().toDateString();
+    if(screenTime.lastReset!==today) setScreenTime(s=>({...s,used:0,lastReset:today}));
+    const iv=setInterval(()=>setScreenTime(s=>({...s,used:s.used+1})),60000);
+    return()=>clearInterval(iv);
+  },[]);
+
+  const showToast=(msg)=>{setToast(msg);setTimeout(()=>setToast(null),3000);};
+
+  const earnBadge=(id)=>{
+    if(!badges.includes(id)){
+      setBadges(b=>[...b,id]);
+      const badge=BADGES.find(b=>b.id===id);
+      if(badge) showToast(`🏆 New badge: ${badge.name}!`);
+    }
+  };
+
+  const addPoints=(n)=>{
+    const newPts=points+n;
+    setPoints(newPts);
+    if(newPts>=50) earnBadge('points50');
+    if(newPts>=100) earnBadge('points100');
+    showToast(`+${n} points! ⭐`);
+  };
+
+  const toggleHw=(id)=>{
+    const updated=hw.map(x=>x.id===id?{...x,done:!x.done}:x);
+    setHw(updated);
+    const item=updated.find(x=>x.id===id);
+    if(item.done){addPoints(10);if(!badges.includes('first_hw'))earnBadge('first_hw');}
+  };
+
+  const toggleBp=(id)=>{
+    const updated=bp.map(x=>x.id===id?{...x,done:!x.done}:x);
+    setBp(updated);
+    if(updated.every(x=>x.done))earnBadge('all_backpack');
+  };
+
+
+
+  const tabs=[['home','🏠'],['homework','📚'],['backpack','🎒'],['allowance','💰'],['badges','🏆'],['timer','⏱'],['messages','💬'],['ai','🤖']];
+
+  return(
+    <div style={{minHeight:'100vh',background:dark?'#0f172a':'linear-gradient(135deg,#fff9c4,#ffecd2,#ffd6e7,#d4f1ff)',fontFamily:"'Nunito',sans-serif",position:'relative'}}>
+      {toast&&<div style={{position:'fixed',top:20,left:'50%',transform:'translateX(-50%)',background:'linear-gradient(135deg,#667eea,#764ba2)',color:'#fff',padding:'10px 20px',borderRadius:20,fontWeight:700,zIndex:999,animation:'pop 0.3s ease',boxShadow:'0 4px 20px rgba(0,0,0,0.3)',whiteSpace:'nowrap'}}>{toast}</div>}
+      {!dark&&['⭐','🌈','🎨','🦄','🚀','🍭'].map((e,i)=>(
+        <div key={i} style={{position:'fixed',fontSize:`${1.2+(i%3)*0.4}rem`,left:`${(i*17)%92}%`,top:`${(i*19+5)%88}%`,opacity:0.1,pointerEvents:'none',animation:`float ${4+i}s ease-in-out infinite`}}>{e}</div>
+      ))}
+      <div style={{background:dark?'rgba(15,23,42,0.95)':'rgba(255,255,255,0.7)',backdropFilter:'blur(10px)',padding:'12px 16px',position:'sticky',top:0,zIndex:100,borderBottom:`2px solid ${dark?'#334155':'rgba(255,107,157,0.2)'}`}}>
+        <div style={{maxWidth:520,margin:'0 auto',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+          <div style={{display:'flex',alignItems:'center',gap:10}}>
+            <div style={{fontSize:'1.5rem'}}>{data.avatar||'😊'}</div>
+            <div>
+              <div style={{fontWeight:900,fontSize:'1.1rem',color:'#ff6b9d'}}>🌟 KidZone</div>
+              <div style={{fontSize:'0.72rem',color:T.sub}}>Hi {username}! ⭐{points}pts 🔥{streak}d</div>
+            </div>
+          </div>
+          <div style={{display:'flex',gap:6}}>
+            {screenTime.limit>0&&<div style={{fontSize:'0.72rem',color:screenTime.used>=screenTime.limit?'#ef4444':'#10b981',background:screenTime.used>=screenTime.limit?'rgba(239,68,68,0.1)':'rgba(16,185,129,0.1)',padding:'4px 8px',borderRadius:8,fontWeight:700}}>⏱{screenTime.used}/{screenTime.limit}m</div>}
+            <button onClick={onBack} className="btn" style={{padding:'5px 10px',borderRadius:16,background:'rgba(255,107,157,0.1)',color:'#ff6b9d',fontSize:'0.72rem',fontWeight:700}}>Switch</button>
+            <button onClick={onLogout} className="btn" style={{padding:'5px 10px',borderRadius:16,background:dark?'rgba(255,255,255,0.08)':'rgba(0,0,0,0.07)',color:T.sub,fontSize:'0.72rem',fontWeight:700}}>Out</button>
+          </div>
+        </div>
+      </div>
+      <div style={{background:dark?'rgba(30,41,59,0.95)':'rgba(255,255,255,0.85)',padding:'6px 12px',overflowX:'auto',display:'flex',gap:5,borderBottom:`1px solid ${T.border}`}}>
+        {tabs.map(([t,e])=>(
+          <button key={t} onClick={()=>setTab(t)} className="btn" style={{padding:'6px 12px',borderRadius:16,fontSize:'0.78rem',fontWeight:700,whiteSpace:'nowrap',background:tab===t?'linear-gradient(135deg,#f093fb,#f5576c)':'transparent',color:tab===t?'#fff':T.sub,boxShadow:tab===t?'0 4px 12px rgba(245,87,108,0.4)':'none'}}>{e} {t.charAt(0).toUpperCase()+t.slice(1)}</button>
+        ))}
+      </div>
+      <div style={{maxWidth:520,margin:'0 auto',padding:'14px 12px'}}>
+
+        {tab==='home'&&<div style={{display:'flex',flexDirection:'column',gap:12,animation:'fadeUp 0.4s ease'}}>
+          <div style={{background:'linear-gradient(135deg,#f093fb,#f5576c)',borderRadius:20,padding:18,color:'#fff'}}>
+            <div style={{fontSize:'1.8rem',marginBottom:6}}>👋</div>
+            <div style={{fontWeight:900,fontSize:'1.2rem'}}>Hey {username}!</div>
+            <div style={{opacity:0.9,fontSize:'0.85rem',marginTop:3}}>{hw.filter(h=>!h.done).length} homework tasks left · {streak} day streak 🔥</div>
+            <div style={{display:'flex',gap:10,marginTop:12}}>
+              <div style={{flex:1,background:'rgba(255,255,255,0.2)',borderRadius:12,padding:'8px 12px',textAlign:'center'}}>
+                <div style={{fontWeight:900,fontSize:'1.3rem'}}>{points}</div><div style={{fontSize:'0.7rem',opacity:0.85}}>Points ⭐</div>
+              </div>
+              <div style={{flex:1,background:'rgba(255,255,255,0.2)',borderRadius:12,padding:'8px 12px',textAlign:'center'}}>
+                <div style={{fontWeight:900,fontSize:'1.3rem'}}>{badges.length}</div><div style={{fontSize:'0.7rem',opacity:0.85}}>Badges 🏆</div>
+              </div>
+              <div style={{flex:1,background:'rgba(255,255,255,0.2)',borderRadius:12,padding:'8px 12px',textAlign:'center'}}>
+                <div style={{fontWeight:900,fontSize:'1.3rem'}}>${allowance.earned.toFixed(0)}</div><div style={{fontSize:'0.7rem',opacity:0.85}}>Saved 💰</div>
+              </div>
+            </div>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+            {[['📚','Homework',`${hw.filter(h=>h.done).length}/${hw.length} done`,'homework'],
+              ['🎒','Backpack',`${bp.filter(b=>b.done).length}/${bp.length} packed`,'backpack'],
+              ['💰','Allowance',`$${allowance.earned.toFixed(2)}`,'allowance'],
+              ['💬','Family Chat','Message family','messages']
+            ].map(([e,t,s,target])=>(
+              <button key={t} onClick={()=>setTab(target)} className="btn" style={{background:T.card,borderRadius:16,padding:'14px',textAlign:'left',boxShadow:'0 2px 12px rgba(0,0,0,0.07)',border:`1px solid ${T.border}`}}>
+                <div style={{fontSize:'1.5rem',marginBottom:5}}>{e}</div>
+                <div style={{fontWeight:800,fontSize:'0.9rem',color:T.text}}>{t}</div>
+                <div style={{fontSize:'0.75rem',color:T.sub,marginTop:1}}>{s}</div>
+              </button>
+            ))}
+          </div>
+        </div>}
+
+        {tab==='homework'&&<div style={{animation:'fadeUp 0.4s ease'}}>
+          <h2 style={{fontWeight:900,color:T.text,marginBottom:14}}>📚 Homework (+10pts each)</h2>
+          <div style={{display:'flex',gap:8,marginBottom:14}}>
+            <input value={newHw} onChange={e=>setNewHw(e.target.value)} onKeyDown={e=>e.key==='Enter'&&newHw.trim()&&(setHw([...hw,{id:Date.now(),text:newHw,done:false,subject:'Other'}]),setNewHw(''))} placeholder="Add homework..." className="inp" style={{background:T.input,borderColor:T.inputBorder,color:T.text}}/>
+            <button onClick={()=>{if(newHw.trim()){setHw([...hw,{id:Date.now(),text:newHw,done:false,subject:'Other'}]);setNewHw('');}}} className="btn" style={{padding:'11px 16px',borderRadius:10,background:'#f5576c',color:'#fff',fontWeight:700}}>+</button>
+          </div>
+          {hw.map(h=>(
+            <div key={h.id} style={{background:T.card,borderRadius:14,padding:'12px 14px',display:'flex',alignItems:'center',gap:10,marginBottom:8,border:`2px solid ${h.done?'#84fab0':T.border}`,opacity:h.done?0.7:1}}>
+              <button onClick={()=>toggleHw(h.id)} className="btn" style={{width:26,height:26,borderRadius:8,flexShrink:0,background:h.done?'#84fab0':T.input,border:`2px solid ${h.done?'#52c78a':T.inputBorder}`,color:'#fff',fontWeight:900,fontSize:'0.8rem'}}>{h.done?'✓':''}</button>
+              <span style={{flex:1,fontWeight:700,color:h.done?T.sub:T.text,textDecoration:h.done?'line-through':'none',fontSize:'0.9rem'}}>{h.text}</span>
+              {h.done&&<span style={{fontSize:'0.75rem',color:'#10b981',fontWeight:700}}>+10pts</span>}
+              <button onClick={()=>setHw(hw.filter(x=>x.id!==h.id))} className="btn" style={{background:'rgba(239,68,68,0.1)',color:'#ef4444',borderRadius:8,padding:'4px 8px',fontSize:'0.78rem'}}>✕</button>
+            </div>
+          ))}
+          {hw.length===0&&<div style={{textAlign:'center',padding:'30px',color:T.sub}}>🎉 No homework!</div>}
+        </div>}
+
+        {tab==='backpack'&&<div style={{animation:'fadeUp 0.4s ease'}}>
+          <h2 style={{fontWeight:900,color:T.text,marginBottom:14}}>🎒 Backpack Checklist</h2>
+          <div style={{display:'flex',gap:8,marginBottom:14}}>
+            <input value={newBp} onChange={e=>setNewBp(e.target.value)} onKeyDown={e=>e.key==='Enter'&&newBp.trim()&&(setBp([...bp,{id:Date.now(),text:newBp,done:false}]),setNewBp(''))} placeholder="Add item..." className="inp" style={{background:T.input,borderColor:T.inputBorder,color:T.text}}/>
+            <button onClick={()=>{if(newBp.trim()){setBp([...bp,{id:Date.now(),text:newBp,done:false}]);setNewBp('');}}} className="btn" style={{padding:'11px 16px',borderRadius:10,background:'#a78bfa',color:'#fff',fontWeight:700}}>+</button>
+          </div>
+          {bp.map(b=>(
+            <div key={b.id} style={{background:T.card,borderRadius:14,padding:'12px 14px',display:'flex',alignItems:'center',gap:10,marginBottom:8,border:`2px solid ${b.done?'#a78bfa':T.border}`}}>
+              <button onClick={()=>toggleBp(b.id)} className="btn" style={{width:26,height:26,borderRadius:8,background:b.done?'#a78bfa':T.input,border:`2px solid ${b.done?'#7c3aed':T.inputBorder}`,color:'#fff',fontWeight:900,fontSize:'0.8rem'}}>{b.done?'✓':''}</button>
+              <span style={{flex:1,fontWeight:700,color:b.done?T.sub:T.text,textDecoration:b.done?'line-through':'none',fontSize:'0.9rem'}}>{b.text}</span>
+              <button onClick={()=>setBp(bp.filter(x=>x.id!==b.id))} className="btn" style={{background:'rgba(239,68,68,0.1)',color:'#ef4444',borderRadius:8,padding:'4px 8px',fontSize:'0.78rem'}}>✕</button>
+            </div>
+          ))}
+        </div>}
+
+        {tab==='allowance'&&<div style={{animation:'fadeUp 0.4s ease'}}>
+          <h2 style={{fontWeight:900,color:T.text,marginBottom:14}}>💰 Allowance Tracker</h2>
+          <div style={{background:'linear-gradient(135deg,#43e97b,#38f9d7)',borderRadius:20,padding:18,color:'#fff',marginBottom:14}}>
+            <div style={{fontSize:'0.82rem',opacity:0.85}}>Total Saved</div>
+            <div style={{fontSize:'2.3rem',fontWeight:900}}>${allowance.earned.toFixed(2)}</div>
+            <div style={{marginTop:10}}>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:'0.78rem',opacity:0.85,marginBottom:5}}><span>🎯 {allowance.goalName}</span><span>${allowance.goal}</span></div>
+              <ProgressBar value={allowance.earned} max={allowance.goal} color="rgba(255,255,255,0.9)" height={8}/>
+              {allowance.earned>=allowance.goal&&<div style={{marginTop:6,fontWeight:700,fontSize:'0.85rem'}}>🎉 Goal reached! Set a new one!</div>}
+            </div>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:14}}>
+            {[1,2,5,10].map(amt=>(
+              <button key={amt} onClick={()=>{const e=+(allowance.earned+amt).toFixed(2);setAllowance(a=>({...a,earned:e,history:[...a.history,{amt,date:new Date().toLocaleDateString()}]}));if(e>=allowance.goal)earnBadge('savings_goal');if(e>=10)earnBadge('savings10');}} className="btn" style={{padding:'11px',borderRadius:12,background:'rgba(67,233,123,0.15)',color:'#10b981',fontWeight:800,border:'1px solid rgba(67,233,123,0.3)'}}>+${amt}</button>
+            ))}
+          </div>
+          <div style={{background:T.card,borderRadius:14,padding:14,border:`1px solid ${T.border}`}}>
+            <div style={{fontWeight:700,color:T.text,marginBottom:8}}>Set Goal</div>
+            <input value={allowance.goalName} onChange={e=>setAllowance(a=>({...a,goalName:e.target.value}))} placeholder="Goal name" className="inp" style={{marginBottom:8,background:T.input,borderColor:T.inputBorder,color:T.text}}/>
+            <input type="number" value={allowance.goal} onChange={e=>setAllowance(a=>({...a,goal:+e.target.value}))} placeholder="Goal $" className="inp" style={{background:T.input,borderColor:T.inputBorder,color:T.text}}/>
+          </div>
+        </div>}
+
+        {tab==='badges'&&<div style={{animation:'fadeUp 0.4s ease'}}>
+          <h2 style={{fontWeight:900,color:T.text,marginBottom:6}}>🏆 Badges & Achievements</h2>
+          <p style={{color:T.sub,fontSize:'0.85rem',marginBottom:14}}>{badges.length}/{BADGES.length} earned · {points} total points</p>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+            {BADGES.map(b=>{
+              const earned=badges.includes(b.id);
+              return(
+                <div key={b.id} style={{background:T.card,borderRadius:14,padding:'14px',border:`2px solid ${earned?'#fbbf24':T.border}`,opacity:earned?1:0.5,textAlign:'center'}}>
+                  <div style={{fontSize:'2rem',marginBottom:6,filter:earned?'none':'grayscale(100%)'}}>{b.icon}</div>
+                  <div style={{fontWeight:800,fontSize:'0.85rem',color:earned?'#fbbf24':T.sub}}>{b.name}</div>
+                  <div style={{fontSize:'0.72rem',color:T.sub,marginTop:3}}>{b.desc}</div>
+                  {earned&&<div style={{fontSize:'0.7rem',color:'#10b981',fontWeight:700,marginTop:4}}>✓ Earned!</div>}
+                </div>
+              );
+            })}
+          </div>
+        </div>}
+
+        {tab==='timer'&&<div style={{animation:'fadeUp 0.4s ease'}}>
+          <h2 style={{fontWeight:900,color:T.text,marginBottom:14}}>⏱ Study Timer</h2>
+          <StudyTimer dark={dark}/>
+          <div style={{marginTop:14,background:T.card,borderRadius:14,padding:14,border:`1px solid ${T.border}`}}>
+            <div style={{fontWeight:700,color:T.text,marginBottom:6}}>📱 Screen Time Today</div>
+            <ProgressBar value={screenTime.used} max={screenTime.limit||120} color={screenTime.used>=(screenTime.limit||120)?'#ef4444':'#10b981'} height={8}/>
+            <div style={{fontSize:'0.78rem',color:T.sub,marginTop:5}}>{screenTime.used} / {screenTime.limit||120} minutes used</div>
+          </div>
+        </div>}
+
+        {tab==='messages'&&<div style={{animation:'fadeUp 0.4s ease'}}>
+          <h2 style={{fontWeight:900,color:T.text,marginBottom:12}}>💬 Family Messages</h2>
+          <MessagingTab username={username} role="kid" accentColor="#f5576c" bubbleGrad="linear-gradient(135deg,#f093fb,#f5576c)" familyId={familyId} dark={dark} onFirstMessage={()=>earnBadge('family_chat')} hasMessaged={hasMessaged}/>
+        </div>}
+
+        {tab==='ai'&&<div style={{animation:'fadeUp 0.4s ease'}}>
+          <h2 style={{fontWeight:900,color:T.text,marginBottom:6}}>🤖 AI Homework Helper</h2>
+          <p style={{color:T.sub,fontSize:'0.85rem',marginBottom:14}}>Ask anything — I explain it simply!</p>
+          <AIBox system="You are a friendly homework helper for kids aged 5-14. Give clear, simple, encouraging explanations with emojis. Keep answers fun and easy to understand." placeholder="Ask your homework question..." color="#f5576c" dark={dark}/>
+        </div>}
+      </div>
+    </div>
+  );
+}
+
+// ── ADULT MODE ────────────────────────────────────────────────────────────────
+function AdultMode({username,data,onSave,onBack,onLogout,familyId,dark,familyMembers,familyPin}){
+  const[tab,setTab]=useState('home');
+  const[pinUnlocked,setPinUnlocked]=useState(!familyPin); // Locked if family PIN is set
+  const[budget,setBudget]=useState(data.budget||{income:3000,expenses:[]});
+  const[groceries,setGroceries]=useState(data.groceries||[]);
+  const[bills,setBills]=useState(data.bills||[]);
+  const[planner,setPlanner]=useState(data.planner||[]);
+  const[newItem,setNewItem]=useState('');
+  const[newBill,setNewBill]=useState({name:'',amount:'',due:'',recurring:false});
+  const[approvals,setApprovals]=useState(data.approvalRequests||[]);
+  const[parentPin,setParentPin]=useState(data.parentPin||null);
+  // Save PIN to family doc so all devices can check it
+  const savePinToFamily=async(pin)=>{
+    if(!familyId)return;
+    try{ await fbSet(['families',familyId,'settings','pin'],{pin:pin||null,setBy:username,updatedAt:Date.now()}); }catch{}
+  };
+  const[showPinSetup,setShowPinSetup]=useState(false);
+  const[newPin,setNewPin]=useState('');
+  const[weeklyReport,setWeeklyReport]=useState('');
+  const[reportLoad,setReportLoad]=useState(false);
+  const T=useTheme(dark);
+
+  useEffect(()=>{ onSave({...data,budget,groceries,bills,planner,approvalRequests:approvals,parentPin}); },[budget,groceries,bills,planner,approvals,parentPin]);
+
+  // Listen for approval requests from family
+  useEffect(()=>{
+    if(!familyId)return;
+    fbListen(['families',familyId,'approvals'],(items)=>{
+      setApprovals(items.filter(a=>a.parentUsername===username&&a.status==='pending'));
+    });
+  },[familyId]);
+
+  const spent=budget.expenses.reduce((s,e)=>s+e.amount,0);
+  const remaining=budget.income-spent;
+
+  if(!pinUnlocked) return <PinScreen onSuccess={()=>setPinUnlocked(true)} title="Adult Mode — Enter PIN" correctPin={familyPin}/>;
+
+  const genReport=async()=>{
+    setReportLoad(true);
+    const summary=`Family data: ${bills.filter(b=>!b.paid).length} unpaid bills totaling $${bills.filter(b=>!b.paid).reduce((s,b)=>s+b.amount,0)}. Budget: $${remaining} remaining from $${budget.income}. ${planner.filter(p=>p.done).length}/${planner.length} tasks done. ${groceries.filter(g=>!g.done).length} grocery items remaining.`;
+    const r=await askAI(`Generate a brief, friendly weekly family summary and tips based on: ${summary}`,"You are a helpful family assistant. Give a warm, practical weekly summary with 2-3 actionable tips. Keep it under 150 words.");
+    setWeeklyReport(r);setReportLoad(false);
+  };
+
+  const respondApproval=async(id,approved)=>{
+    if(!familyId)return;
+    await fbUpdate(['families',familyId,'approvals',id],{status:approved?'approved':'denied',respondedAt:Date.now()});
+    setApprovals(a=>a.filter(x=>x.id!==id));
+  };
+
+  const tabs=[['home','🏠'],['budget','💰'],['groceries','🛒'],['bills','📋'],['planner','📅'],['approvals','✅'],['messages','💬'],['settings','⚙️'],['ai','🤖']];
+
+  return(
+    <div style={{minHeight:'100vh',background:dark?'#0f172a':'#f1f5f9',fontFamily:"'Sora',sans-serif"}}>
+      <div style={{background:'linear-gradient(135deg,#0f172a,#1e3a5f)',padding:'13px 16px',position:'sticky',top:0,zIndex:100}}>
+        <div style={{maxWidth:620,margin:'0 auto',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+          <div><div style={{fontWeight:800,fontSize:'1.1rem',color:'#fff'}}>💼 FamilyHub</div><div style={{fontSize:'0.7rem',color:'rgba(255,255,255,0.5)'}}>Adult · {username}</div></div>
+          <div style={{display:'flex',gap:6}}>
+            {approvals.length>0&&<div style={{background:'#ef4444',color:'#fff',borderRadius:'50%',width:20,height:20,display:'flex',alignItems:'center',justifyContent:'center',fontSize:'0.72rem',fontWeight:700}}>{approvals.length}</div>}
+            <button onClick={onBack} className="btn" style={{padding:'6px 12px',borderRadius:10,background:'rgba(255,255,255,0.1)',color:'rgba(255,255,255,0.7)',fontSize:'0.75rem',fontWeight:700}}>Switch</button>
+            <button onClick={onLogout} className="btn" style={{padding:'6px 12px',borderRadius:10,background:'rgba(255,255,255,0.07)',color:'rgba(255,255,255,0.5)',fontSize:'0.75rem'}}>Out</button>
+          </div>
+        </div>
+      </div>
+      <div style={{background:dark?'#1e293b':'#fff',borderBottom:`1px solid ${T.border}`,padding:'0 12px',overflowX:'auto',display:'flex',gap:2}}>
+        {tabs.map(([t,l])=>(
+          <button key={t} onClick={()=>setTab(t)} className="btn" style={{padding:'12px 14px',fontWeight:700,fontSize:'0.8rem',whiteSpace:'nowrap',borderBottom:tab===t?'2px solid #3b82f6':'2px solid transparent',color:tab===t?'#3b82f6':T.sub,background:'transparent',position:'relative'}}>
+            {l}
+            {t==='approvals'&&approvals.length>0&&<span style={{position:'absolute',top:8,right:2,background:'#ef4444',color:'#fff',borderRadius:'50%',width:14,height:14,fontSize:'0.6rem',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700}}>{approvals.length}</span>}
+          </button>
+        ))}
+      </div>
+      <div style={{maxWidth:620,margin:'0 auto',padding:'14px 12px'}}>
+
+        {tab==='home'&&<div style={{display:'flex',flexDirection:'column',gap:12,animation:'fadeUp 0.4s ease'}}>
+          <div style={{background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',borderRadius:20,padding:18,color:'#fff'}}>
+            <div style={{fontWeight:800,fontSize:'1.3rem',marginBottom:2}}>{username} 👋</div>
+            <div style={{opacity:0.7,fontSize:'0.82rem',marginBottom:12}}>Here's your family overview</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,textAlign:'center'}}>
+              {[['💰',`$${remaining.toFixed(0)}`,'Remaining'],['🛒',`${groceries.filter(g=>!g.done).length}`,'Items left'],['📋',`${bills.filter(b=>!b.paid).length}`,'Bills due']].map(([e,v,l])=>(
+                <div key={l} style={{background:'rgba(255,255,255,0.12)',borderRadius:12,padding:'10px'}}>
+                  <div>{e}</div><div style={{fontWeight:800,fontSize:'1.1rem'}}>{v}</div><div style={{fontSize:'0.68rem',opacity:0.7}}>{l}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          {weeklyReport?<div style={{background:T.card,borderRadius:14,padding:16,border:`1px solid ${T.border}`}}>
+            <div style={{fontWeight:700,color:T.text,marginBottom:8}}>📊 Weekly AI Report</div>
+            <div style={{fontSize:'0.85rem',color:T.sub,lineHeight:1.7}}>{weeklyReport}</div>
+          </div>:<button onClick={genReport} disabled={reportLoad} className="btn" style={{padding:'12px',borderRadius:14,background:dark?'#1e293b':'#fff',border:`1px solid ${T.border}`,color:T.text,fontWeight:700,fontSize:'0.88rem'}}>{reportLoad?<><span className="spinner"/> Generating...</>:'📊 Generate Weekly AI Report'}</button>}
+          <div style={{background:T.card,borderRadius:14,padding:14,border:`1px solid ${T.border}`}}>
+            <div style={{fontWeight:700,color:T.text,marginBottom:10}}>📋 Upcoming Bills</div>
+            {bills.filter(b=>!b.paid).slice(0,3).map(b=>(
+              <div key={b.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'7px 0',borderBottom:`1px solid ${T.border}`}}>
+                <div><div style={{fontWeight:700,fontSize:'0.88rem',color:T.text}}>{b.name}{b.recurring&&<span style={{marginLeft:6,fontSize:'0.68rem',color:'#6366f1',background:'rgba(99,102,241,0.1)',padding:'1px 6px',borderRadius:8}}>recurring</span>}</div><div style={{fontSize:'0.72rem',color:'#f59e0b'}}>Due {b.due}</div></div>
+                <div style={{fontWeight:800,color:'#ef4444'}}>${b.amount}</div>
+              </div>
+            ))}
+            {bills.filter(b=>!b.paid).length===0&&<div style={{color:T.sub,fontSize:'0.85rem'}}>✅ All bills paid!</div>}
+          </div>
+        </div>}
+
+        {tab==='budget'&&<div style={{animation:'fadeUp 0.4s ease'}}>
+          <h2 style={{fontWeight:800,color:T.text,marginBottom:14}}>💰 Budget Tracker</h2>
+          <div style={{background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',borderRadius:20,padding:18,color:'#fff',marginBottom:14}}>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,textAlign:'center'}}>
+              {[['Income',`$${budget.income}`,'#93c5fd'],['Spent',`$${spent}`,'#fca5a5'],['Left',`$${remaining}`,'#86efac']].map(([l,v,c])=>(
+                <div key={l}><div style={{fontSize:'0.72rem',opacity:0.7}}>{l}</div><div style={{fontWeight:900,fontSize:'1.2rem',color:c}}>{v}</div></div>
+              ))}
+            </div>
+            <div style={{marginTop:12,background:'rgba(255,255,255,0.2)',borderRadius:20,height:8}}><div style={{background:spent/budget.income>0.9?'#fca5a5':'#86efac',borderRadius:20,height:8,width:`${Math.min((spent/budget.income)*100,100)}%`,transition:'width 0.5s'}}/></div>
+            <div style={{fontSize:'0.72rem',opacity:0.6,marginTop:4}}>{((spent/budget.income)*100).toFixed(0)}% of income used</div>
+          </div>
+          <div style={{background:T.card,borderRadius:14,padding:14,marginBottom:12,border:`1px solid ${T.border}`}}>
+            <div style={{fontWeight:700,color:T.text,marginBottom:8}}>Monthly Income</div>
+            <input type="number" value={budget.income} onChange={e=>setBudget(b=>({...b,income:+e.target.value}))} className="inp" style={{background:T.input,borderColor:T.inputBorder,color:T.text}}/>
+          </div>
+          <div style={{background:T.card,borderRadius:14,padding:14,border:`1px solid ${T.border}`}}>
+            <div style={{fontWeight:700,color:T.text,marginBottom:10}}>Expenses</div>
+            {budget.expenses.map((e,i)=>(
+              <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:`1px solid ${T.border}`}}>
+                <span style={{color:T.text,fontSize:'0.9rem'}}>{e.name}</span>
+                <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                  <span style={{fontWeight:700,color:'#ef4444'}}>${e.amount}</span>
+                  <div style={{width:`${Math.min((e.amount/budget.income)*100,100)*2}px`,maxWidth:80,background:'#fee2e2',height:4,borderRadius:99}}><div style={{background:'#ef4444',height:4,borderRadius:99,width:'100%'}}/></div>
+                  <button onClick={()=>setBudget(b=>({...b,expenses:b.expenses.filter((_,j)=>j!==i)}))} className="btn" style={{color:'#ef4444',background:'rgba(239,68,68,0.1)',borderRadius:6,padding:'3px 8px',fontSize:'0.75rem'}}>✕</button>
+                </div>
+              </div>
+            ))}
+            <div style={{display:'flex',gap:8,marginTop:10}}>
+              <input id="ename" placeholder="Expense name" className="inp" style={{flex:2,background:T.input,borderColor:T.inputBorder,color:T.text}}/>
+              <input id="eamt" type="number" placeholder="$" className="inp" style={{flex:1,background:T.input,borderColor:T.inputBorder,color:T.text}}/>
+              <button onClick={()=>{const n=document.getElementById('ename').value;const a=document.getElementById('eamt').value;if(n&&a){setBudget(b=>({...b,expenses:[...b.expenses,{name:n,amount:+a}]}));document.getElementById('ename').value='';document.getElementById('eamt').value='';}}} className="btn" style={{padding:'11px 14px',borderRadius:10,background:'#3b82f6',color:'#fff',fontWeight:700}}>+</button>
+            </div>
+          </div>
+        </div>}
+
+        {tab==='groceries'&&<div style={{animation:'fadeUp 0.4s ease'}}>
+          <h2 style={{fontWeight:800,color:T.text,marginBottom:14}}>🛒 Grocery List</h2>
+          <div style={{display:'flex',gap:8,marginBottom:12}}>
+            <input value={newItem} onChange={e=>setNewItem(e.target.value)} onKeyDown={e=>e.key==='Enter'&&newItem.trim()&&(setGroceries([...groceries,{id:Date.now(),text:newItem,done:false}]),setNewItem(''))} placeholder="Add item..." className="inp" style={{background:T.input,borderColor:T.inputBorder,color:T.text}}/>
+            <button onClick={()=>{if(newItem.trim()){setGroceries([...groceries,{id:Date.now(),text:newItem,done:false}]);setNewItem('');}}} className="btn" style={{padding:'11px 14px',borderRadius:10,background:'#10b981',color:'#fff',fontWeight:700}}>+</button>
+          </div>
+          {groceries.map(g=>(
+            <div key={g.id} style={{background:T.card,borderRadius:12,padding:'11px 14px',display:'flex',alignItems:'center',gap:10,marginBottom:7,border:`1px solid ${T.border}`,opacity:g.done?0.6:1}}>
+              <button onClick={()=>setGroceries(groceries.map(x=>x.id===g.id?{...x,done:!x.done}:x))} className="btn" style={{width:24,height:24,borderRadius:7,background:g.done?'#10b981':T.input,border:`2px solid ${g.done?'#10b981':T.inputBorder}`,color:'#fff',fontWeight:900,fontSize:'0.75rem'}}>{g.done?'✓':''}</button>
+              <span style={{flex:1,fontWeight:600,color:g.done?T.sub:T.text,textDecoration:g.done?'line-through':'none',fontSize:'0.9rem'}}>{g.text}</span>
+              <button onClick={()=>setGroceries(groceries.filter(x=>x.id!==g.id))} className="btn" style={{color:'#ef4444',background:'rgba(239,68,68,0.1)',borderRadius:7,padding:'3px 8px',fontSize:'0.75rem'}}>✕</button>
+            </div>
+          ))}
+        </div>}
+
+        {tab==='bills'&&<div style={{animation:'fadeUp 0.4s ease'}}>
+          <h2 style={{fontWeight:800,color:T.text,marginBottom:14}}>📋 Bills & Reminders</h2>
+          {bills.map(b=>(
+            <div key={b.id} style={{background:T.card,borderRadius:14,padding:'13px 14px',display:'flex',alignItems:'center',gap:10,marginBottom:9,border:`1.5px solid ${b.paid?'#d1fae5':'#fee2e2'}`}}>
+              <button onClick={()=>setBills(bills.map(x=>x.id===b.id?{...x,paid:!x.paid}:x))} className="btn" style={{width:24,height:24,borderRadius:7,background:b.paid?'#10b981':'transparent',border:`2px solid ${b.paid?'#10b981':T.inputBorder}`,color:'#fff',fontWeight:900,fontSize:'0.78rem'}}>{b.paid?'✓':''}</button>
+              <div style={{flex:1}}>
+                <div style={{display:'flex',alignItems:'center',gap:6}}>
+                  <span style={{fontWeight:700,color:T.text,fontSize:'0.9rem'}}>{b.name}</span>
+                  {b.recurring&&<span style={{fontSize:'0.65rem',color:'#6366f1',background:'rgba(99,102,241,0.1)',padding:'1px 6px',borderRadius:8,fontWeight:700}}>↻ recurring</span>}
+                </div>
+                <div style={{fontSize:'0.72rem',color:b.paid?'#10b981':'#f59e0b'}}>Due {b.due}</div>
+              </div>
+              <div style={{fontWeight:800,color:b.paid?'#10b981':'#ef4444'}}>${b.amount}</div>
+              <button onClick={()=>setBills(bills.filter(x=>x.id!==b.id))} className="btn" style={{color:'#ef4444',background:'rgba(239,68,68,0.1)',borderRadius:7,padding:'3px 8px',fontSize:'0.75rem'}}>✕</button>
+            </div>
+          ))}
+          <div style={{background:T.card,borderRadius:14,padding:14,marginTop:4,border:`1px solid ${T.border}`}}>
+            <div style={{fontWeight:700,color:T.text,marginBottom:10}}>+ Add Bill</div>
+            <div style={{display:'flex',flexDirection:'column',gap:8}}>
+              <input value={newBill.name} onChange={e=>setNewBill(b=>({...b,name:e.target.value}))} placeholder="Bill name" className="inp" style={{background:T.input,borderColor:T.inputBorder,color:T.text}}/>
+              <div style={{display:'flex',gap:8}}>
+                <input value={newBill.amount} onChange={e=>setNewBill(b=>({...b,amount:e.target.value}))} placeholder="Amount $" className="inp" type="number" style={{background:T.input,borderColor:T.inputBorder,color:T.text}}/>
+                <input value={newBill.due} onChange={e=>setNewBill(b=>({...b,due:e.target.value}))} placeholder="Due date" className="inp" style={{background:T.input,borderColor:T.inputBorder,color:T.text}}/>
+              </div>
+              <label style={{display:'flex',alignItems:'center',gap:8,color:T.sub,fontSize:'0.85rem',cursor:'pointer'}}>
+                <input type="checkbox" checked={newBill.recurring} onChange={e=>setNewBill(b=>({...b,recurring:e.target.checked}))} style={{width:16,height:16}}/>
+                Recurring monthly
+              </label>
+              <button onClick={()=>{if(newBill.name&&newBill.amount){setBills([...bills,{id:Date.now(),...newBill,amount:+newBill.amount,paid:false}]);setNewBill({name:'',amount:'',due:'',recurring:false});}}} className="btn" style={{padding:'11px',borderRadius:10,background:'#3b82f6',color:'#fff',fontWeight:700}}>Add Bill</button>
+            </div>
+          </div>
+        </div>}
+
+        {tab==='planner'&&<div style={{animation:'fadeUp 0.4s ease'}}>
+          <h2 style={{fontWeight:800,color:T.text,marginBottom:14}}>📅 Daily Planner</h2>
+          <div style={{display:'flex',gap:8,marginBottom:12}}>
+            <input value={newItem} onChange={e=>setNewItem(e.target.value)} onKeyDown={e=>e.key==='Enter'&&newItem.trim()&&(setPlanner([...planner,{id:Date.now(),text:newItem,done:false,priority:'medium'}]),setNewItem(''))} placeholder="Add task..." className="inp" style={{background:T.input,borderColor:T.inputBorder,color:T.text}}/>
+            <button onClick={()=>{if(newItem.trim()){setPlanner([...planner,{id:Date.now(),text:newItem,done:false,priority:'medium'}]);setNewItem('');}}} className="btn" style={{padding:'11px 14px',borderRadius:10,background:'#6366f1',color:'#fff',fontWeight:700}}>+</button>
+          </div>
+          {planner.map(p=>(
+            <div key={p.id} style={{background:T.card,borderRadius:12,padding:'11px 14px',display:'flex',alignItems:'center',gap:10,marginBottom:7,border:`1px solid ${T.border}`}}>
+              <button onClick={()=>setPlanner(planner.map(x=>x.id===p.id?{...x,done:!x.done}:x))} className="btn" style={{width:24,height:24,borderRadius:7,background:p.done?'#6366f1':T.input,border:`2px solid ${p.done?'#6366f1':T.inputBorder}`,color:'#fff',fontWeight:900,fontSize:'0.75rem'}}>{p.done?'✓':''}</button>
+              <span style={{flex:1,fontWeight:600,color:p.done?T.sub:T.text,textDecoration:p.done?'line-through':'none',fontSize:'0.88rem'}}>{p.text}</span>
+              <select value={p.priority} onChange={e=>setPlanner(planner.map(x=>x.id===p.id?{...x,priority:e.target.value}:x))} style={{fontSize:'0.7rem',fontWeight:700,padding:'3px 6px',borderRadius:8,border:'none',color:{high:'#ef4444',medium:'#f59e0b',low:'#10b981'}[p.priority],background:{high:'#fee2e2',medium:'#fef3c7',low:'#d1fae5'}[p.priority]}}>
+                <option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option>
+              </select>
+              <button onClick={()=>setPlanner(planner.filter(x=>x.id!==p.id))} className="btn" style={{color:'#ef4444',background:'rgba(239,68,68,0.1)',borderRadius:7,padding:'3px 8px',fontSize:'0.75rem'}}>✕</button>
+            </div>
+          ))}
+        </div>}
+
+        {tab==='approvals'&&<div style={{animation:'fadeUp 0.4s ease'}}>
+          <h2 style={{fontWeight:800,color:T.text,marginBottom:6}}>✅ Approval Requests</h2>
+          <p style={{color:T.sub,fontSize:'0.85rem',marginBottom:14}}>Requests from your kids waiting for your response</p>
+          {approvals.length===0&&<div style={{background:T.card,borderRadius:14,padding:30,textAlign:'center',border:`1px solid ${T.border}`}}><div style={{fontSize:'2rem',marginBottom:8}}>✅</div><div style={{color:T.sub,fontSize:'0.88rem'}}>No pending requests!</div></div>}
+          {approvals.map(a=>(
+            <div key={a.id} style={{background:T.card,borderRadius:14,padding:16,marginBottom:10,border:`1px solid ${T.border}`}}>
+              <div style={{display:'flex',alignItems:'flex-start',gap:10,marginBottom:10}}>
+                <div style={{fontSize:'1.5rem'}}>{a.type==='money'?'💰':a.type==='screentime'?'📱':'📝'}</div>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:700,color:T.text,fontSize:'0.92rem'}}>{a.from} is requesting:</div>
+                  <div style={{color:T.sub,fontSize:'0.85rem',marginTop:3}}>{a.message}</div>
+                </div>
+              </div>
+              <div style={{display:'flex',gap:8}}>
+                <button onClick={()=>respondApproval(a.id,true)} className="btn" style={{flex:1,padding:'9px',borderRadius:10,background:'#d1fae5',color:'#065f46',fontWeight:700}}>✓ Approve</button>
+                <button onClick={()=>respondApproval(a.id,false)} className="btn" style={{flex:1,padding:'9px',borderRadius:10,background:'#fee2e2',color:'#991b1b',fontWeight:700}}>✕ Deny</button>
+              </div>
+            </div>
+          ))}
+        </div>}
+
+        {tab==='messages'&&<div style={{animation:'fadeUp 0.4s ease'}}>
+          <h2 style={{fontWeight:800,color:T.text,marginBottom:12}}>💬 Family Messages</h2>
+          <MessagingTab username={username} role="adult" accentColor="#3b82f6" bubbleGrad="linear-gradient(135deg,#4facfe,#00f2fe)" familyId={familyId} dark={dark} onFirstMessage={()=>{}} hasMessaged={true}/>
+        </div>}
+
+        {tab==='settings'&&<div style={{animation:'fadeUp 0.4s ease'}}>
+          <h2 style={{fontWeight:800,color:T.text,marginBottom:14}}>⚙️ Parent Settings</h2>
+          <div style={{background:T.card,borderRadius:14,padding:16,marginBottom:12,border:`1px solid ${T.border}`}}>
+            <div style={{fontWeight:700,color:T.text,marginBottom:4}}>🔒 Parent PIN</div>
+            <div style={{color:T.sub,fontSize:'0.82rem',marginBottom:12}}>Protect Adult Mode with a PIN so kids can't access it.</div>
+            {parentPin?<div>
+              <div style={{color:'#10b981',fontWeight:700,fontSize:'0.88rem',marginBottom:8}}>✅ PIN is set</div>
+              <button onClick={()=>{setParentPin(null);savePinToFamily(null);}} className="btn" style={{padding:'9px 16px',borderRadius:10,background:'rgba(239,68,68,0.1)',color:'#ef4444',fontWeight:700,fontSize:'0.85rem'}}>Remove PIN</button>
+            </div>:<div>
+              {showPinSetup?<div style={{display:'flex',gap:8}}>
+                <input type="password" maxLength={6} value={newPin} onChange={e=>setNewPin(e.target.value)} placeholder="Set 4-6 digit PIN" className="inp" style={{flex:1,background:T.input,borderColor:T.inputBorder,color:T.text}}/>
+                <button onClick={()=>{if(newPin.length>=4){setParentPin(newPin);savePinToFamily(newPin);setShowPinSetup(false);setNewPin('');}}} className="btn" style={{padding:'11px 14px',borderRadius:10,background:'#3b82f6',color:'#fff',fontWeight:700}}>Save</button>
+              </div>:<button onClick={()=>setShowPinSetup(true)} className="btn" style={{padding:'9px 16px',borderRadius:10,background:'rgba(59,130,246,0.1)',color:'#3b82f6',fontWeight:700,fontSize:'0.85rem'}}>Set PIN</button>}
+            </div>}
+          </div>
+          <div style={{background:T.card,borderRadius:14,padding:16,border:`1px solid ${T.border}`}}>
+            <div style={{fontWeight:700,color:T.text,marginBottom:4}}>📱 Kids Screen Time Limit</div>
+            <div style={{color:T.sub,fontSize:'0.82rem',marginBottom:10}}>Set how many minutes per day kids can use the app.</div>
+            <div style={{display:'flex',gap:8}}>
+              <input id="stlimit" type="number" placeholder="Minutes per day" defaultValue={120} className="inp" style={{flex:1,background:T.input,borderColor:T.inputBorder,color:T.text}}/>
+              <button onClick={()=>{const v=+document.getElementById('stlimit').value;if(v>0){const d=defData('kid');d.screenTime.limit=v;onSave({...data,kidsScreenTimeLimit:v});}}} className="btn" style={{padding:'11px 14px',borderRadius:10,background:'#6366f1',color:'#fff',fontWeight:700}}>Set</button>
+            </div>
+          </div>
+        </div>}
+
+        {tab==='ai'&&<div style={{animation:'fadeUp 0.4s ease'}}>
+          <h2 style={{fontWeight:800,color:T.text,marginBottom:6}}>🤖 AI Life Assistant</h2>
+          <p style={{color:T.sub,fontSize:'0.85rem',marginBottom:14}}>Paste documents, ask about finances, taxes, health, anything.</p>
+          <AIBox system="You are a smart, professional life assistant for adults. Help with finances, taxes, health, legal basics (with disclaimers), productivity, home management, and family life." placeholder="Paste a document or ask anything..." color="#3b82f6" dark={dark}/>
+        </div>}
+      </div>
+    </div>
+  );
+}
+
+// ── COMBO MODE ────────────────────────────────────────────────────────────────
+function ComboMode({username,userRole,data,onSave,onBack,onLogout,familyId,dark,familyMembers}){
+  const[tab,setTab]=useState('dashboard');
+  const[tasks,setTasks]=useState(data.sharedTasks||[]);
+  const[goals,setGoals]=useState(data.sharedGoals||[]);
+  const[groceries,setGroceries]=useState(data.sharedGroceries||[]);
+  const[calendar,setCalendar]=useState(data.calendarEvents||[]);
+  const[newTask,setNewTask]=useState('');const[newGoal,setNewGoal]=useState({name:'',target:''});
+  const[newGrocery,setNewGrocery]=useState('');const[newEvent,setNewEvent]=useState({title:'',date:'',type:'school'});
+  const[reqMsg,setReqMsg]=useState('');const[reqType,setReqType]=useState('money');const[reqSent,setReqSent]=useState(false);
+  const T=useTheme(dark);
+  const rc=userRole==='kid'?'#f5576c':'#3b82f6';
+  const rg=userRole==='kid'?'linear-gradient(135deg,#f093fb,#f5576c)':'linear-gradient(135deg,#4facfe,#00f2fe)';
+
+  useEffect(()=>{onSave({...data,sharedTasks:tasks,sharedGoals:goals,sharedGroceries:groceries,calendarEvents:calendar});},[tasks,goals,groceries,calendar]);
+
+  const sendApproval=async()=>{
+    if(!reqMsg.trim()||!familyId)return;
+    await fbAdd(['families',familyId,'approvals'],{from:username,type:reqType,message:reqMsg,status:'pending',parentUsername:familyMembers.find(m=>m!==username)||'parent'});
+    setReqSent(true);setReqMsg('');
+    setTimeout(()=>setReqSent(false),3000);
+  };
+
+  const tabs=[['dashboard','🏠'],['tasks','✅'],['goals','🎯'],['groceries','🛒'],['calendar','📅'],['request','📬'],['messages','💬'],['ai','🤖']];
+
+  return(
+    <div style={{minHeight:'100vh',background:dark?'#0f172a':'#f8fafc',fontFamily:"'Sora',sans-serif"}}>
+      <div style={{background:'linear-gradient(135deg,#1a1a2e,#16213e)',padding:'12px 14px',position:'sticky',top:0,zIndex:100}}>
+        <div style={{maxWidth:620,margin:'0 auto',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+          <div>
+            <div style={{fontWeight:800,fontSize:'1.05rem',color:'#fff'}}>🔄 Family Mode</div>
+            <div style={{fontSize:'0.7rem',color:'rgba(255,255,255,0.5)'}}>
+              <span style={{background:rc,color:'#fff',padding:'1px 7px',borderRadius:20,fontSize:'0.65rem',fontWeight:700,marginRight:5}}>{userRole==='kid'?'KID':'ADULT'}</span>{username}
+            </div>
+          </div>
+          <div style={{display:'flex',gap:6}}>
+            <button onClick={onBack} className="btn" style={{padding:'6px 12px',borderRadius:10,background:'rgba(255,255,255,0.1)',color:'rgba(255,255,255,0.7)',fontSize:'0.75rem',fontWeight:700}}>Switch</button>
+            <button onClick={onLogout} className="btn" style={{padding:'6px 12px',borderRadius:10,background:'rgba(255,255,255,0.07)',color:'rgba(255,255,255,0.5)',fontSize:'0.75rem'}}>Out</button>
+          </div>
+        </div>
+      </div>
+      <div style={{background:dark?'#1e293b':'#fff',borderBottom:`1px solid ${T.border}`,padding:'0 10px',overflowX:'auto',display:'flex',gap:2}}>
+        {tabs.map(([t,l])=>(
+          <button key={t} onClick={()=>setTab(t)} className="btn" style={{padding:'12px 12px',fontWeight:700,fontSize:'0.8rem',whiteSpace:'nowrap',borderBottom:tab===t?`2px solid ${rc}`:'2px solid transparent',color:tab===t?rc:T.sub,background:'transparent'}}>{l}</button>
+        ))}
+      </div>
+      <div style={{maxWidth:620,margin:'0 auto',padding:'14px 12px'}}>
+
+        {tab==='dashboard'&&<div style={{display:'flex',flexDirection:'column',gap:12,animation:'fadeUp 0.4s ease'}}>
+          <div style={{background:rg,borderRadius:20,padding:18,color:'#fff'}}>
+            <div style={{fontWeight:900,fontSize:'1.2rem',marginBottom:3}}>Family Dashboard 🏠</div>
+            <div style={{opacity:0.85,fontSize:'0.82rem'}}>Everything your family is working on together.</div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,marginTop:12}}>
+              {[['✅',tasks.filter(t=>!t.done).length,'Tasks'],['🎯',goals.length,'Goals'],['📅',calendar.length,'Events'],['👥',familyMembers?.length||1,'Members']].map(([e,v,l])=>(
+                <div key={l} style={{background:'rgba(255,255,255,0.15)',borderRadius:10,padding:'8px',textAlign:'center'}}>
+                  <div>{e}</div><div style={{fontWeight:900,fontSize:'1rem'}}>{v}</div><div style={{fontSize:'0.62rem',opacity:0.8}}>{l}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div style={{background:T.card,borderRadius:14,padding:14,border:`1px solid ${T.border}`}}>
+            <div style={{fontWeight:700,color:T.text,marginBottom:10}}>🎯 Goals Progress</div>
+            {goals.slice(0,3).map(g=>(
+              <div key={g.id} style={{marginBottom:10}}>
+                <div style={{display:'flex',justifyContent:'space-between',fontSize:'0.82rem',fontWeight:700,color:T.text,marginBottom:4}}><span>{g.name}</span><span style={{color:'#6366f1'}}>${g.saved}/${g.target}</span></div>
+                <ProgressBar value={g.saved} max={g.target} color="#6366f1" height={6}/>
+              </div>
+            ))}
+          </div>
+          <div style={{background:T.card,borderRadius:14,padding:14,border:`1px solid ${T.border}`}}>
+            <div style={{fontWeight:700,color:T.text,marginBottom:10}}>👥 Family Members</div>
+            <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+              {(familyMembers||[username]).map(m=>(
+                <div key={m} style={{display:'flex',alignItems:'center',gap:6,background:dark?'#334155':'#f8fafc',borderRadius:12,padding:'6px 12px',border:`1px solid ${T.border}`}}>
+                  <div style={{width:24,height:24,borderRadius:'50%',background:'linear-gradient(135deg,#667eea,#764ba2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'0.7rem',color:'#fff',fontWeight:700}}>{m[0]?.toUpperCase()}</div>
+                  <span style={{fontSize:'0.82rem',fontWeight:600,color:T.text}}>{m}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>}
+
+        {tab==='tasks'&&<div style={{animation:'fadeUp 0.4s ease'}}>
+          <h2 style={{fontWeight:800,color:T.text,marginBottom:14}}>✅ Shared Tasks</h2>
+          <div style={{display:'flex',gap:8,marginBottom:12}}>
+            <input value={newTask} onChange={e=>setNewTask(e.target.value)} onKeyDown={e=>e.key==='Enter'&&newTask.trim()&&(setTasks([...tasks,{id:Date.now(),text:newTask,done:false,by:username}]),setNewTask(''))} placeholder="Add task..." className="inp" style={{background:T.input,borderColor:T.inputBorder,color:T.text}}/>
+            <button onClick={()=>{if(newTask.trim()){setTasks([...tasks,{id:Date.now(),text:newTask,done:false,by:username}]);setNewTask('');}}} className="btn" style={{padding:'11px 14px',borderRadius:10,background:rc,color:'#fff',fontWeight:700}}>+</button>
+          </div>
+          {tasks.map(t=>(
+            <div key={t.id} style={{background:T.card,borderRadius:12,padding:'11px 14px',display:'flex',alignItems:'center',gap:10,marginBottom:7,border:`1px solid ${t.done?'#d1fae5':T.border}`}}>
+              <button onClick={()=>setTasks(tasks.map(x=>x.id===t.id?{...x,done:!x.done}:x))} className="btn" style={{width:24,height:24,borderRadius:7,background:t.done?'#10b981':T.input,border:`2px solid ${t.done?'#10b981':T.inputBorder}`,color:'#fff',fontWeight:900,fontSize:'0.75rem'}}>{t.done?'✓':''}</button>
+              <div style={{flex:1}}><div style={{fontWeight:600,fontSize:'0.88rem',color:t.done?T.sub:T.text,textDecoration:t.done?'line-through':'none'}}>{t.text}</div><div style={{fontSize:'0.7rem',color:T.sub}}>by {t.by}</div></div>
+              <button onClick={()=>setTasks(tasks.filter(x=>x.id!==t.id))} className="btn" style={{color:'#ef4444',background:'rgba(239,68,68,0.1)',borderRadius:7,padding:'3px 8px',fontSize:'0.75rem'}}>✕</button>
+            </div>
+          ))}
+        </div>}
+
+        {tab==='goals'&&<div style={{animation:'fadeUp 0.4s ease'}}>
+          <h2 style={{fontWeight:800,color:T.text,marginBottom:14}}>🎯 Family Goals</h2>
+          {goals.map(g=>(
+            <div key={g.id} style={{background:T.card,borderRadius:16,padding:16,marginBottom:12,border:`1px solid ${T.border}`}}>
+              <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
+                <span style={{fontWeight:800,color:T.text}}>{g.name}</span>
+                <span style={{color:'#6366f1',fontWeight:700,fontSize:'0.88rem'}}>${g.saved}/${g.target}</span>
+              </div>
+              <ProgressBar value={g.saved} max={g.target} color="#6366f1" height={10}/>
+              <div style={{display:'flex',gap:6,marginTop:10}}>
+                {[10,25,50].map(amt=><button key={amt} onClick={()=>setGoals(goals.map(x=>x.id===g.id?{...x,saved:Math.min(x.target,x.saved+amt)}:x))} className="btn" style={{flex:1,padding:'7px',borderRadius:9,background:'rgba(99,102,241,0.1)',color:'#6366f1',fontWeight:700,fontSize:'0.78rem'}}>+${amt}</button>)}
+                <button onClick={()=>setGoals(goals.filter(x=>x.id!==g.id))} className="btn" style={{padding:'7px 10px',borderRadius:9,background:'rgba(239,68,68,0.1)',color:'#ef4444',fontSize:'0.75rem'}}>✕</button>
+              </div>
+            </div>
+          ))}
+          <div style={{background:T.card,borderRadius:14,padding:14,border:`1px solid ${T.border}`}}>
+            <div style={{fontWeight:700,color:T.text,marginBottom:10}}>+ Add Goal</div>
+            <input value={newGoal.name} onChange={e=>setNewGoal(g=>({...g,name:e.target.value}))} placeholder="Goal name" className="inp" style={{marginBottom:8,background:T.input,borderColor:T.inputBorder,color:T.text}}/>
+            <div style={{display:'flex',gap:8}}>
+              <input value={newGoal.target} onChange={e=>setNewGoal(g=>({...g,target:e.target.value}))} type="number" placeholder="Target $" className="inp" style={{background:T.input,borderColor:T.inputBorder,color:T.text}}/>
+              <button onClick={()=>{if(newGoal.name&&newGoal.target){setGoals([...goals,{id:Date.now(),name:newGoal.name,target:+newGoal.target,saved:0}]);setNewGoal({name:'',target:''});}}} className="btn" style={{padding:'11px 14px',borderRadius:10,background:rc,color:'#fff',fontWeight:700}}>Add</button>
+            </div>
+          </div>
+        </div>}
+
+        {tab==='groceries'&&<div style={{animation:'fadeUp 0.4s ease'}}>
+          <h2 style={{fontWeight:800,color:T.text,marginBottom:14}}>🛒 Shared Shopping</h2>
+          <div style={{display:'flex',gap:8,marginBottom:12}}>
+            <input value={newGrocery} onChange={e=>setNewGrocery(e.target.value)} onKeyDown={e=>e.key==='Enter'&&newGrocery.trim()&&(setGroceries([...groceries,{id:Date.now(),text:newGrocery,done:false,by:username}]),setNewGrocery(''))} placeholder="Add item..." className="inp" style={{background:T.input,borderColor:T.inputBorder,color:T.text}}/>
+            <button onClick={()=>{if(newGrocery.trim()){setGroceries([...groceries,{id:Date.now(),text:newGrocery,done:false,by:username}]);setNewGrocery('');}}} className="btn" style={{padding:'11px 14px',borderRadius:10,background:'#10b981',color:'#fff',fontWeight:700}}>+</button>
+          </div>
+          {groceries.map(g=>(
+            <div key={g.id} style={{background:T.card,borderRadius:12,padding:'11px 14px',display:'flex',alignItems:'center',gap:10,marginBottom:7,border:`1px solid ${T.border}`,opacity:g.done?0.6:1}}>
+              <button onClick={()=>setGroceries(groceries.map(x=>x.id===g.id?{...x,done:!x.done}:x))} className="btn" style={{width:24,height:24,borderRadius:7,background:g.done?'#10b981':T.input,border:`2px solid ${g.done?'#10b981':T.inputBorder}`,color:'#fff',fontWeight:900,fontSize:'0.75rem'}}>{g.done?'✓':''}</button>
+              <div style={{flex:1}}><div style={{fontWeight:600,fontSize:'0.88rem',color:g.done?T.sub:T.text,textDecoration:g.done?'line-through':'none'}}>{g.text}</div><div style={{fontSize:'0.7rem',color:T.sub}}>by {g.by}</div></div>
+              <button onClick={()=>setGroceries(groceries.filter(x=>x.id!==g.id))} className="btn" style={{color:'#ef4444',background:'rgba(239,68,68,0.1)',borderRadius:7,padding:'3px 8px',fontSize:'0.75rem'}}>✕</button>
+            </div>
+          ))}
+        </div>}
+
+        {tab==='calendar'&&<div style={{animation:'fadeUp 0.4s ease'}}>
+          <h2 style={{fontWeight:800,color:T.text,marginBottom:14}}>📅 Family Calendar</h2>
+          {calendar.map(e=>(
+            <div key={e.id} style={{background:T.card,borderRadius:14,padding:'12px 14px',display:'flex',alignItems:'center',gap:12,marginBottom:8,borderLeft:`4px solid ${e.type==='school'?'#f5576c':e.type==='adult'?'#3b82f6':'#10b981'}`}}>
+              <div style={{flex:1}}><div style={{fontWeight:700,color:T.text,fontSize:'0.88rem'}}>{e.title}</div><div style={{fontSize:'0.7rem',color:T.sub}}>{e.date} · <span style={{color:e.type==='school'?'#f5576c':e.type==='adult'?'#3b82f6':'#10b981',fontWeight:700,textTransform:'uppercase'}}>{e.type}</span></div></div>
+              <button onClick={()=>setCalendar(calendar.filter(x=>x.id!==e.id))} className="btn" style={{color:'#ef4444',background:'rgba(239,68,68,0.1)',borderRadius:7,padding:'3px 8px',fontSize:'0.75rem'}}>✕</button>
+            </div>
+          ))}
+          <div style={{background:T.card,borderRadius:14,padding:14,border:`1px solid ${T.border}`}}>
+            <input value={newEvent.title} onChange={e=>setNewEvent(v=>({...v,title:e.target.value}))} placeholder="Event name" className="inp" style={{marginBottom:8,background:T.input,borderColor:T.inputBorder,color:T.text}}/>
+            <div style={{display:'flex',gap:8,marginBottom:8}}>
+              <input value={newEvent.date} onChange={e=>setNewEvent(v=>({...v,date:e.target.value}))} placeholder="Date (e.g. Jun 20)" className="inp" style={{background:T.input,borderColor:T.inputBorder,color:T.text}}/>
+              <select value={newEvent.type} onChange={e=>setNewEvent(v=>({...v,type:e.target.value}))} className="inp" style={{flex:'0 0 auto',width:100,background:T.input,borderColor:T.inputBorder,color:T.text}}>
+                <option value="school">School</option><option value="adult">Adult</option><option value="family">Family</option>
+              </select>
+            </div>
+            <button onClick={()=>{if(newEvent.title&&newEvent.date){setCalendar([...calendar,{id:Date.now(),...newEvent}]);setNewEvent({title:'',date:'',type:'school'});}}} className="btn" style={{width:'100%',padding:'11px',borderRadius:10,background:rc,color:'#fff',fontWeight:700}}>Add Event</button>
+          </div>
+        </div>}
+
+        {tab==='request'&&<div style={{animation:'fadeUp 0.4s ease'}}>
+          <h2 style={{fontWeight:800,color:T.text,marginBottom:6}}>📬 {userRole==='kid'?'Request Approval':'Approval Requests'}</h2>
+          {userRole==='kid'?<div>
+            <p style={{color:T.sub,fontSize:'0.85rem',marginBottom:14}}>Ask a parent for permission — they'll get notified!</p>
+            <div style={{background:T.card,borderRadius:14,padding:16,border:`1px solid ${T.border}`}}>
+              <div style={{marginBottom:10}}>
+                <div style={{fontWeight:700,color:T.text,fontSize:'0.85rem',marginBottom:6}}>Request type:</div>
+                <div style={{display:'flex',gap:8}}>
+                  {[['money','💰 Money'],['screentime','📱 Screen Time'],['other','📝 Other']].map(([v,l])=>(
+                    <button key={v} onClick={()=>setReqType(v)} className="btn" style={{flex:1,padding:'8px',borderRadius:10,background:reqType===v?rc:'transparent',color:reqType===v?'#fff':T.sub,border:`1px solid ${reqType===v?rc:T.border}`,fontSize:'0.78rem',fontWeight:700}}>{l}</button>
+                  ))}
+                </div>
+              </div>
+              <textarea value={reqMsg} onChange={e=>setReqMsg(e.target.value)} placeholder="Describe what you're asking for..." className="inp" style={{height:90,resize:'none',background:T.input,borderColor:T.inputBorder,color:T.text,marginBottom:10}}/>
+              {reqSent&&<div style={{color:'#10b981',fontWeight:700,fontSize:'0.85rem',marginBottom:8}}>✅ Request sent to parent!</div>}
+              <button onClick={sendApproval} className="btn" style={{width:'100%',padding:'11px',borderRadius:10,background:rg,color:'#fff',fontWeight:700}}>Send Request 📬</button>
+            </div>
+          </div>:<div style={{background:T.card,borderRadius:14,padding:20,textAlign:'center',border:`1px solid ${T.border}`}}><div style={{fontSize:'2rem',marginBottom:8}}>📬</div><div style={{color:T.sub,fontSize:'0.88rem'}}>Check the Approvals tab in Adult Mode to see pending requests.</div></div>}
+        </div>}
+
+        {tab==='messages'&&<div style={{animation:'fadeUp 0.4s ease'}}>
+          <h2 style={{fontWeight:800,color:T.text,marginBottom:12}}>💬 Family Messages</h2>
+          <MessagingTab username={username} role={userRole} accentColor={rc} bubbleGrad={rg} familyId={familyId} dark={dark} onFirstMessage={()=>{}} hasMessaged={true}/>
+        </div>}
+
+        {tab==='ai'&&<div style={{animation:'fadeUp 0.4s ease'}}>
+          <h2 style={{fontWeight:800,color:T.text,marginBottom:6}}>🤖 Family AI</h2>
+          <AIBox system={userRole==='kid'?"You are a helpful family assistant for a child. Be warm and use simple language with emojis.":"You are a helpful family assistant. Help with family planning, budgeting, parenting, scheduling, and household management."} placeholder={userRole==='kid'?"Ask me anything!":"How can I help your family?"} color={rc} dark={dark}/>
+        </div>}
+      </div>
+    </div>
+  );
+}
+
+// ── ROOT ──────────────────────────────────────────────────────────────────────
+function App(){
+  const[screen,setScreen]=useState('loading');
+  const[username,setUsername]=useState('');
+  const[userRole,setUserRole]=useState('adult');
+  const[userData,setUserData]=useState(null);
+  const[mode,setMode]=useState(null);
+  const[familyId,setFamilyId]=useState(null);
+  const[familyMembers,setFamilyMembers]=useState([]);
+  const[dark,setDark]=useState(()=>LS.getDark());
+  const[familyPin,setFamilyPin]=useState(null);
+
+  // Load family PIN from Firebase when familyId is known
+  useEffect(()=>{
+    if(!familyId)return;
+    fbGet(['families',familyId,'settings','pin']).then(s=>{
+      setFamilyPin(s?.pin||null);
+    }).catch(()=>{});
+  },[familyId]);
+
+  useEffect(()=>{
+    const session=LS.getSession();
+    if(session){
+      const restore=async()=>{
+        for(let i=1;i<=3;i++){
+          try{
+            const user=await fbGet(['users',session.username]);
+            if(user){setUsername(session.username);setUserRole(user.role);setUserData(user.appData||defData(user.role));setFamilyId(user.familyId||null);setFamilyMembers(user.familyMembers||[]);setScreen('mode');}
+            else{LS.clearSession();setScreen('auth');}
+            return;
+          }catch(e){if(i<3)await new Promise(r=>setTimeout(r,1000*i));else{LS.clearSession();setScreen('auth');}}
+        }
+      };
+      restore();
+    }else setScreen('auth');
+  },[]);
+
+  const toggleDark=()=>{const d=!dark;setDark(d);LS.setDark(d);};
+  const handleLogin=(un,role,data,fid,fm)=>{setUsername(un);setUserRole(role);setUserData(data);setFamilyId(fid||null);setFamilyMembers(fm||[]);setScreen('mode');};
+  const handleLogout=()=>{LS.clearSession();setScreen('auth');setMode(null);setUsername('');setUserData(null);setFamilyId(null);setFamilyMembers([]);};
+  const handleSave=async(newData)=>{
+    setUserData(newData);
+    try{const user=await fbGet(['users',username]);if(user)await fbSet(['users',username],{...user,appData:newData});}catch{}
+  };
+  const handleFamilyDone=async(fid,fm)=>{
+    setFamilyId(fid);setFamilyMembers(fm||[]);
+    try{const user=await fbGet(['users',username]);if(user)await fbSet(['users',username],{...user,familyId:fid,familyMembers:fm||[]});}catch{}
+    setScreen('mode');
+  };
+
+  if(screen==='loading')return(
+    <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#0f0c29,#302b63)',display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:16}}>
+      <div style={{fontSize:'3rem',animation:'float 2s ease-in-out infinite'}}>🏠</div>
+      <div style={{color:'#a5b4fc',fontWeight:700}}>Loading FamilyHub...</div>
+      <div style={{color:'rgba(255,255,255,0.3)',fontSize:'0.8rem'}}>Connecting to cloud ☁️</div>
+      <span className="spinner" style={{borderTopColor:'#6366f1',borderColor:'rgba(99,102,241,0.3)',width:28,height:28}}/>
+    </div>
+  );
+  if(screen==='auth')return <AuthScreen onLogin={handleLogin}/>;
+  if(screen==='family')return <FamilySetup username={username} currentFamilyId={familyId} currentMembers={familyMembers} onDone={handleFamilyDone}/>;
+  if(screen==='mode')return <ModeSelector username={username} userRole={userRole} onSelect={m=>{setMode(m);setScreen('app');}} onLogout={handleLogout} onFamily={()=>setScreen('family')} familyId={familyId} dark={dark} onToggleDark={toggleDark}/>;
+  if(screen==='app'&&userData){
+    const p={username,data:userData,onSave:handleSave,onBack:()=>setScreen('mode'),onLogout:handleLogout,familyId,dark,familyMembers};
+    if(mode==='kid')return <KidMode {...p} pinRequired={!!familyPin} familyPin={familyPin}/>;
+    if(mode==='adult')return <AdultMode {...p} familyPin={familyPin}/>;
+    if(mode==='combo')return <ComboMode {...p} userRole={userRole}/>;
+  }
+  return null;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
